@@ -79,7 +79,11 @@ def evaluate_recovery(
         accepted_assurance_levels=accepted_assurance_levels,
     )
     if route == "CREDENTIAL_FIRST":
-        return RecoveryDecision(route=route, outcome="USE_EXISTING_CREDENTIAL")
+        return RecoveryDecision(
+            route=route,
+            outcome="USE_EXISTING_CREDENTIAL",
+            required_consistent_evidence_classes=min_consistent_evidence_classes,
+        )
 
     evidence = tuple(evidence)
     contradictions = tuple(

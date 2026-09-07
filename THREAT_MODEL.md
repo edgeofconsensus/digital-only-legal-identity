@@ -1,6 +1,6 @@
 # Digital-Only Legal Identity — Threat Model
 
-Status: Draft 0.4 companion
+Status: Draft 0.4.1 companion
 
 ## 1. Security objective
 
@@ -17,9 +17,9 @@ The system protects:
 - the effective timestamp of each legal transition;
 - the binding between legal identity and privacy-preserving policy reference;
 - the authenticity and freshness of registry assertions;
-- the integrity of minimal signing-evidence history;
+- the integrity of credential continuity and minimal signing-evidence history;
 - the distinction between workflow events and effective policy;
-- the confidentiality of identity and signing-history data beyond what a verifier needs.
+- the confidentiality of identity, recovery and signing-history data beyond what a verifier needs.
 
 ## 3. Actors
 
@@ -35,8 +35,11 @@ An entity deciding whether to rely on a signature or authorization.
 ### Credential provider
 A high-assurance authentication/signature system used to authenticate the subject.
 
+### Recovery evaluator
+A technical or legally authorized process that evaluates independent recovery evidence. It does not have implicit authority to downgrade policy.
+
 ### Adversary
-Any actor attempting to create, modify, suppress, replay or falsely attribute legal intent or policy state.
+Any actor attempting to create, modify, suppress, replay or falsely attribute legal intent, credential continuity or policy state.
 
 ## 4. Threats and controls
 
@@ -50,7 +53,7 @@ Any actor attempting to create, modify, suppress, replay or falsely attribute le
 
 **Threat:** An attacker gains control of a digital credential.
 
-**Control:** Use credential revocation/suspension/re-issuance and audit. Credential compromise MUST NOT reactivate handwritten authority.
+**Control:** Use credential revocation/suspension/re-issuance and audit. Credential compromise MUST NOT reactivate handwritten authority. Independent credentials SHOULD be revocable without changing effective policy.
 
 ### T3 — Unauthorized activation
 
@@ -120,9 +123,9 @@ Any actor attempting to create, modify, suppress, replay or falsely attribute le
 
 ### T14 — Coercion
 
-**Threat:** A person is forced to activate, downgrade or authorize a transaction.
+**Threat:** A person is forced to activate, downgrade, recover a credential or authorize a transaction.
 
-**Control:** Cryptography alone cannot solve coercion. Profiles SHOULD use delay for downgrade, independent notification, transaction-specific review and legally defined safeguards where appropriate.
+**Control:** Cryptography alone cannot solve coercion. Profiles SHOULD use delay for downgrade/recovery where appropriate, independent notification, transaction-specific review and legally defined safeguards.
 
 ### T15 — Malicious or negligent relying party
 
@@ -140,7 +143,7 @@ Any actor attempting to create, modify, suppress, replay or falsely attribute le
 
 **Threat:** A permanent administrative or recovery channel becomes an easier path to change legal state than the normal subject-controlled workflow.
 
-**Control:** Minimize independent state-changing channels. Each privileged path MUST have a concrete legal/operational justification, equal or stronger assurance, auditability and explicit semantics. Existing verified history should be used for continuity where possible instead of adding unnecessary override channels.
+**Control:** Minimize independent state-changing channels. Each privileged path MUST have a concrete legal/operational justification, equal or stronger assurance, auditability and explicit semantics. Credential recovery MUST NOT carry implicit downgrade authority.
 
 ### T18 — Closed bootstrap capture
 
@@ -150,9 +153,9 @@ Any actor attempting to create, modify, suppress, replay or falsely attribute le
 
 ### T19 — Cooling-off abuse
 
-**Threat:** An attacker repeatedly requests downgrades, blocks cancellation, or exploits timing ambiguity around the not-before completion time.
+**Threat:** An attacker repeatedly requests downgrades or recovery, blocks cancellation, or exploits timing ambiguity around a not-before completion time.
 
-**Control:** Requests are uniquely identified and auditable; effective policy remains `DIGITAL_ONLY` until a separate successful completion event; completion verifies the pending request, cooling-off time and required fresh authorization.
+**Control:** Requests are uniquely identified and auditable; effective policy remains `DIGITAL_ONLY` during recovery and until any separate downgrade completion; completion verifies the pending request, cooling-off time and required authorization.
 
 ### T20 — Technology-specific trust collapse
 
@@ -160,17 +163,43 @@ Any actor attempting to create, modify, suppress, replay or falsely attribute le
 
 **Control:** Define assurance requirements independently of implementation technology and permit alternative conforming implementations with equivalent authenticity, integrity, timing and historical-verification properties.
 
+### T21 — Public-information recovery impersonation
+
+**Threat:** An attacker reconstructs answers from public records, leaked documents or observable signing history and passes a recovery procedure that behaves like a static secret-question system.
+
+**Control:** Enhanced recovery SHOULD combine independent evidence classes and live or otherwise non-replayable evaluation where appropriate. No single public/contextual fact or signing-history item is sufficient by itself.
+
+### T22 — Benign-mismatch bypass
+
+**Threat:** An operator or attacker labels a discrepancy benign and marks it resolved without producing evidence that reconciles the discrepancy.
+
+**Control:** `BENIGN_MISMATCH` produces `REQUIRES_RECONCILIATION`. The system requires reconciliation evidence followed by a new evaluation before cooling-off. A manual `resolved` flag is not sufficient authority.
+
+### T23 — Material-contradiction laundering
+
+**Threat:** A material contradiction is administratively reclassified as benign merely to obtain a permissive recovery result.
+
+**Control:** Material contradictions block automatic completion. Reconciliation of a benign mismatch MUST NOT be used as a path to bypass unresolved evidence of impersonation, coercion or record corruption. Reclassification requires independently supportable evidence under the jurisdiction's procedure.
+
+### T24 — Recovery-channel capture
+
+**Threat:** An attacker controls enough of the recovery workflow to issue a replacement credential while the legitimate subject remains `DIGITAL_ONLY`.
+
+**Control:** Prefer an existing sufficient credential first. Otherwise require enhanced evidence evaluation, contradiction gating and a bounded recovery cooling-off period with cancellation/challenge capability where available. Recovery completion creates credential continuity only and cannot change legal policy.
+
 ## 5. Trust assumptions
 
 The reference protocol assumes:
 
 1. an authoritative legal-identity context exists;
-2. at least one high-assurance mechanism can establish subject authorization for state-changing operations;
+2. at least one high-assurance mechanism can establish subject authorization for ordinary state-changing operations;
 3. a registry authority is legally empowered to publish policy assertions;
 4. verifiers authenticate registry assertions using independently trusted key material or an equivalent trust anchor;
 5. law defines the legal consequence of ignoring the policy.
 
-The protocol does not assume that any single credential, registry, network or government IT system is infallible. A public key carried inside an assertion MUST NOT establish its own authority.
+The enhanced-recovery path exists specifically for cases where no sufficient already-authorized credential remains available; it therefore cannot assume possession of such a credential as its sole proof of identity.
+
+The protocol does not assume that any single credential, registry, network, recovery evaluator or government IT system is infallible. A public key carried inside an assertion MUST NOT establish its own authority.
 
 ## 6. Security invariants
 
@@ -183,18 +212,25 @@ The protocol does not assume that any single credential, registry, network or go
 - **I7:** Stale assertions are distinguishable from fresh assertions.
 - **I8:** A verifier learns no more identity/history information than necessary.
 - **I9:** Historical policy changes leave detectable integrity evidence in the production trust model.
-- **I10:** Compromise of one credential does not make handwriting valid again.
+- **I10:** Compromise or loss of one credential does not make handwriting valid again.
 - **I11:** Signing evidence is not an authentication secret.
 - **I12:** Bootstrap assistance does not create closed membership.
 - **I13:** Additional privileged state-change channels are minimized and justified.
 - **I14:** Technology neutrality preserves equivalent assurance rather than lowering it.
+- **I15:** A sufficient existing credential is preferred before enhanced recovery.
+- **I16:** `BENIGN_MISMATCH` requires reconciliation evidence and re-evaluation before cooling-off.
+- **I17:** A manual resolved flag cannot substitute for reconciliation evidence.
+- **I18:** An unresolved `MATERIAL_CONTRADICTION` blocks automatic recovery completion.
+- **I19:** Recovery completion creates credential continuity and cannot itself change effective policy.
 
 ## 7. Reference implementation boundary
 
 The reference implementation uses synthetic identities, local SQLite storage, local Ed25519 development keys and unauthenticated demonstration mutation/admin endpoints. Those choices are not production controls.
 
-The prototype hash chains detect many in-place modifications but cannot alone detect replacement by an older valid snapshot. Production anti-rollback requires an external freshness/integrity reference.
+The Draft 0.4.1 prototype additionally persists synthetic credential sets and recovery requests. It models credential-first routing, evidence classification, contradiction gating and recovery cooling-off. The evidence supplied to the demo API is synthetic classification input; the prototype does not claim to perform real-world identity proofing or a production post-classical identity interview.
 
-## 8. Out of scope for Draft 0.4
+The prototype hash chains detect many in-place modifications to the policy/signing-evidence streams but cannot alone detect replacement by an older valid snapshot. Production anti-rollback requires an external freshness/integrity reference. The synthetic credential/recovery tables are not presented as a production tamper-evident ledger.
 
-This threat model does not prescribe a national identity-number format, a specific QES/eID provider, a blockchain, a universal coercion solution, jurisdiction-specific liability thresholds, a production HSM architecture, a specific transparency-log technology or a single continuity-of-law implementation.
+## 8. Out of scope for Draft 0.4.1
+
+This threat model does not prescribe a national identity-number format, a specific QES/eID provider, a blockchain, a universal coercion solution, jurisdiction-specific liability thresholds, a production HSM architecture, a specific transparency-log technology, a fixed post-classical interview technique or a single continuity-of-law implementation.

@@ -66,6 +66,18 @@ def test_absent_or_stale_evidence_does_not_become_positive_identity_proof():
     assert not decision.may_enter_cooling_off
 
 
+def test_default_reference_profile_requires_two_independent_consistent_classes():
+    registry = CredentialRegistry()
+    one_class = [RecoveryEvidence("authoritative-identity", "CONSISTENT")]
+
+    decision = evaluate_recovery(registry, "subject-a", one_class)
+
+    assert decision.outcome == "INSUFFICIENT_EVIDENCE"
+    assert decision.consistent_evidence_classes == ("authoritative-identity",)
+    assert decision.required_consistent_evidence_classes == 2
+    assert not decision.may_enter_cooling_off
+
+
 def test_consistent_enhanced_evidence_can_enter_recovery_cooling_off():
     registry = CredentialRegistry()
     evidence = [
@@ -80,12 +92,43 @@ def test_consistent_enhanced_evidence_can_enter_recovery_cooling_off():
     assert decision.may_enter_cooling_off
 
 
+def test_assurance_profile_can_propose_a_different_consistent_evidence_threshold():
+    registry = CredentialRegistry()
+    evidence = [RecoveryEvidence("authoritative-identity", "CONSISTENT")]
+
+    decision = evaluate_recovery(
+        registry,
+        "subject-a",
+        evidence,
+        min_consistent_evidence_classes=1,
+    )
+
+    assert decision.outcome == "READY_FOR_COOLING_OFF"
+    assert decision.required_consistent_evidence_classes == 1
+
+
+def test_duplicate_consistent_evidence_class_does_not_count_twice():
+    registry = CredentialRegistry()
+    evidence = [
+        RecoveryEvidence("authoritative-identity", "CONSISTENT", "source-a"),
+        RecoveryEvidence("authoritative-identity", "CONSISTENT", "source-b"),
+    ]
+
+    decision = evaluate_recovery(registry, "subject-a", evidence)
+
+    assert decision.outcome == "INSUFFICIENT_EVIDENCE"
+    assert decision.consistent_evidence_classes == ("authoritative-identity",)
+
+
 def test_cooling_off_has_explicit_not_before_and_no_policy_field():
     registry = CredentialRegistry()
     decision = evaluate_recovery(
         registry,
         "subject-a",
-        [RecoveryEvidence("authoritative-identity", "CONSISTENT")],
+        [
+            RecoveryEvidence("authoritative-identity", "CONSISTENT"),
+            RecoveryEvidence("continuity-history", "CONSISTENT"),
+        ],
     )
     requested = datetime(2026, 9, 8, 0, 0, tzinfo=timezone.utc)
 
@@ -131,7 +174,10 @@ def test_low_assurance_credential_does_not_prevent_enhanced_recovery():
     decision = evaluate_recovery(
         registry,
         "subject-a",
-        [RecoveryEvidence("authoritative-identity", "CONSISTENT")],
+        [
+            RecoveryEvidence("authoritative-identity", "CONSISTENT"),
+            RecoveryEvidence("continuity-history", "CONSISTENT"),
+        ],
     )
 
     assert decision.route == "ENHANCED_RECOVERY"

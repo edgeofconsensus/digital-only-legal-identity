@@ -1,10 +1,10 @@
 # Digital-Only Legal Identity — Policy State Machine
 
-Status: Draft 0.4 companion
+Status: Draft 0.4.1 companion
 
 ## 1. Purpose
 
-This document defines the state semantics of DOLI by strictly separating effective legal policy, workflow events and verification outcomes.
+This document defines the state semantics of DOLI by strictly separating effective legal policy, workflow events, credential/recovery workflow and verification outcomes.
 
 ## 2. Effective legal policy
 
@@ -20,9 +20,9 @@ For covered transactions, handwriting alone is not sufficient evidence of the su
 
 `INDETERMINATE` is not a policy state. It is a verification outcome.
 
-## 3. Workflow events
+## 3. Policy workflow events
 
-The reference workflow uses events rather than pseudo-policy states:
+The reference policy-event stream uses events rather than pseudo-policy states:
 
 - `ACTIVATION_EFFECTIVE`
 - `DOWNGRADE_REQUESTED`
@@ -35,7 +35,7 @@ A workflow event changes effective policy only when its semantics explicitly def
 
 `DOWNGRADE_REQUESTED`, `DOWNGRADE_CANCELLED`, `RECOVERY_ENTERED` and `RECOVERY_EXITED` do not themselves change effective policy.
 
-## 4. Conceptual transitions
+## 4. Conceptual policy transitions
 
 ```text
 HANDWRITTEN_ALLOWED
@@ -63,7 +63,7 @@ Parallel deployment means that participants and non-participants may coexist. It
 
 ## 6. Event record
 
-Each event is immutable or tamper-evident and binds at least:
+Each policy event is immutable or tamper-evident and binds at least:
 
 - `transition_id`;
 - `subject_ref`;
@@ -74,7 +74,7 @@ Each event is immutable or tamper-evident and binds at least:
 - previous integrity reference;
 - event integrity proof.
 
-Only `ACTIVATION_EFFECTIVE` and `DOWNGRADE_EFFECTIVE` carry an effective policy in reference profile 0.4.
+Only `ACTIVATION_EFFECTIVE` and `DOWNGRADE_EFFECTIVE` carry an effective policy in reference profile 0.4.1.
 
 The schema is deliberately structured so that a workflow request cannot be resolved as a legal policy merely because it is the newest appended record.
 
@@ -116,14 +116,59 @@ DOWNGRADE_EFFECTIVE(effective_policy=HANDWRITTEN_ALLOWED)
 
 A completed downgrade changes only future policy from its `effective_at`; it does not retroactively validate handwriting from a prior `DIGITAL_ONLY` period.
 
-## 9. Recovery
+## 9. Credential-first and enhanced recovery
 
-Recovery operates on credentials and authorization capability, not on the legal policy itself.
+Recovery operates on credentials and authorization capability, not on legal policy.
+
+The reference profile first inspects the subject's registered credential set:
 
 ```text
-RECOVERY_ENTERED -> effective policy unchanged
-RECOVERY_EXITED  -> effective policy unchanged
+recovery request
+    -> sufficient active credential exists
+        -> CREDENTIAL_FIRST
+        -> revoke / rotate / replace credential
+        -> effective policy unchanged
 ```
+
+If no sufficient active credential remains, the workflow may enter enhanced recovery:
+
+```text
+no sufficient active credential
+    -> ENHANCED_RECOVERY
+    -> evidence evaluation
+```
+
+Evidence evaluation may produce:
+
+- `BLOCKED_CONTRADICTION`
+- `REQUIRES_RECONCILIATION`
+- `INSUFFICIENT_EVIDENCE`
+- `READY_FOR_COOLING_OFF`
+
+`BENIGN_MISMATCH` does not proceed directly to cooling-off:
+
+```text
+BENIGN_MISMATCH
+    -> REQUIRES_RECONCILIATION
+    -> reconciliation evidence
+    -> re-evaluation
+```
+
+A manual `resolved` flag is not sufficient. `MATERIAL_CONTRADICTION` blocks automatic recovery completion until independently supportable resolution under the relevant assurance procedure.
+
+The number and combination of independent `CONSISTENT` evidence classes sufficient for `READY_FOR_COOLING_OFF` is not a universal DOLI invariant. It belongs to a recovery assurance profile. The synthetic reference profile proposes a configurable threshold and currently defaults to two distinct consistent evidence classes.
+
+If the evaluation is sufficient:
+
+```text
+READY_FOR_COOLING_OFF
+    -> PENDING recovery request
+    -> cooling-off
+    -> replacement credential
+    -> DIGITAL_ONLY remains effective
+```
+
+The credential/recovery request stream may be maintained separately from the append-only legal-policy event stream. Completing credential recovery does not require appending an effective-policy transition.
 
 Loss of a credential, recovery mode or catastrophic infrastructure outage never implies a downgrade.
 
@@ -197,7 +242,10 @@ The legal system determines whether an indeterminate transaction is delayed, rej
 9. Historical transitions remain verifiable after later changes.
 10. Parallel integration does not weaken an activated subject's policy.
 11. Technology continuity mechanisms preserve equivalent assurance rather than falling back to handwriting.
+12. A benign mismatch requires reconciliation evidence and re-evaluation before recovery cooling-off.
+13. A material contradiction cannot be bypassed by lowering the recovery assurance threshold.
+14. Recovery evidence sufficiency is profile-defined rather than a universal protocol constant.
 
-## 16. Reference implementation target 0.4
+## 16. Reference implementation target 0.4.1
 
-Prototype 0.4 implements synthetic-subject creation, immediate activation, requested/cancelled/completed downgrade with configurable cooling-off, recovery enter/exit events, historical policy resolution, signed assertions, append-only event storage, hash-chain verification, fail-closed outage behavior and a separate minimal signing-evidence history.
+Prototype 0.4.1 implements synthetic-subject creation, immediate activation, requested/cancelled/completed downgrade with configurable cooling-off, recovery enter/exit policy events, credential-set registration/revocation/replacement, credential-first routing, enhanced recovery evidence classification, contradiction and reconciliation gates, configurable evidence sufficiency, recovery cooling-off, historical policy resolution, signed assertions, append-only policy-event storage, hash-chain verification, fail-closed outage behavior and a separate minimal signing-evidence history.

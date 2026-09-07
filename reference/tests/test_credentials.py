@@ -14,7 +14,7 @@ def test_multiple_credentials_are_independent_and_subject_scoped():
     subject_a = registry.list_for_subject("subject-a")
     subject_b = registry.list_for_subject("subject-b")
 
-    assert [record.credential_ref for record in subject_a] == ["hardware:1", "phone:1"]
+    assert [record.credential_ref for record in subject_a] == ["phone:1", "hardware:1"]
     assert [record.credential_ref for record in subject_b] == ["phone:2"]
 
 

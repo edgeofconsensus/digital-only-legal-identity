@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI, HTTPException
 
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 SCHEMA_VERSION = "0.3"
 JURISDICTION = "demo"
 REGISTRY_ISSUER = "doli-reference-registry"
@@ -114,8 +114,8 @@ def key_id(key: Ed25519PrivateKey) -> str:
     return "ed25519:" + hashlib.sha256(public_key_b64(key).encode("ascii")).hexdigest()[:24]
 
 
-def sign_payload(payload: dict) -> str:
-    signature = load_or_create_signing_key().sign(canonical_json(payload))
+def sign_payload(payload: dict, key: Ed25519PrivateKey) -> str:
+    signature = key.sign(canonical_json(payload))
     return base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
 
 
@@ -303,7 +303,7 @@ def get_signature_policy(subject_ref: str, at: str | None = None):
             "alg": "Ed25519",
             "key_id": key_id(signing_key),
             "public_key": public_key_b64(signing_key),
-            "value": sign_payload(assertion),
+            "value": sign_payload(assertion, signing_key),
         },
     }
 

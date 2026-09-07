@@ -1,6 +1,6 @@
 # Digital-Only Legal Identity — Threat Model
 
-Status: Draft 0.2 companion
+Status: Draft 0.3 companion
 
 ## 1. Security objective
 
@@ -67,13 +67,15 @@ Any actor attempting to create, modify, suppress, replay or falsely attribute le
 
 **Threat:** A compromised administrator or system restores an older registry snapshot in which the subject was not yet `DIGITAL_ONLY`.
 
-**Control:** Policy history MUST be append-only or cryptographically tamper-evident. Assertions MUST identify the policy version and effective timestamp. Independent audit evidence SHOULD make rollback detectable.
+**Control:** Policy history MUST be append-only or cryptographically tamper-evident and SHOULD be externally checkpointed or anchored so that rollback to an older internally consistent history is detectable outside the registry itself.
+
+**Reference implementation limitation:** the Draft 0.3 SQLite triggers and per-subject hash chain detect many in-place alterations but cannot, by themselves, detect replacement of the entire database with an older valid snapshot. This is not production anti-rollback protection.
 
 ### T6 — Replay of stale assertion
 
 **Threat:** A verifier or attacker reuses an old `HANDWRITTEN_ALLOWED` assertion after the subject activates `DIGITAL_ONLY`.
 
-**Control:** Assertions MUST carry issuance time, queried legal time, expiration or maximum-validity semantics, unique identifiers and integrity protection. High-risk transactions SHOULD require online freshness.
+**Control:** Assertions MUST carry issuance time, queried legal time, expiration or maximum-validity semantics, unique identifiers and integrity protection. High-risk transactions SHOULD require online freshness. The Draft 0.3 reference assertion expires after five minutes; this duration is a demonstration choice rather than a normative protocol value.
 
 ### T7 — Registry outage
 
@@ -107,9 +109,11 @@ Any actor attempting to create, modify, suppress, replay or falsely attribute le
 
 ### T12 — Malicious registry authority
 
-**Threat:** An insider alters policy state or history.
+**Threat:** An insider alters policy state or history, substitutes registry data or abuses signing authority.
 
-**Control:** Administrative changes MUST be authenticated, logged and independently auditable. Production systems SHOULD use separation of duties and tamper-evident logs. High-assurance deployments MAY use externally anchored transparency proofs.
+**Control:** Administrative changes MUST be authenticated, logged and independently auditable. Production systems SHOULD use separation of duties, protected signing keys, key rotation, tamper-evident logs and externally anchored transparency or audit checkpoints where appropriate.
+
+The reference implementation's locally generated unencrypted Ed25519 key is development-only and does not satisfy production registry-key protection requirements.
 
 ## 5. Trust assumptions
 
@@ -118,10 +122,10 @@ The reference protocol assumes:
 1. an existing authoritative legal-identity system;
 2. at least one legally recognized high-assurance digital authentication or signature mechanism;
 3. a registry authority legally empowered to publish signature-policy assertions;
-4. verifiers can authenticate registry assertions;
+4. verifiers can authenticate registry assertions using an independently trusted registry key or certificate chain;
 5. courts or legislation define the legal consequence of ignoring the policy.
 
-The project does not assume that any single credential, registry or government system is infallible.
+The project does not assume that any single credential, registry or government system is infallible. A public key carried inside an assertion MUST NOT establish its own authority.
 
 ## 6. Security invariants
 
@@ -132,18 +136,19 @@ The following invariants are normative design goals:
 - **I3:** A downgrade cannot be easier to perform than an activation.
 - **I4:** A stale assertion cannot be indistinguishable from a fresh authoritative assertion.
 - **I5:** A verifier learns no more identity information than necessary for the transaction.
-- **I6:** Registry operators cannot alter historical policy transitions without leaving detectable evidence.
+- **I6:** Registry operators cannot alter historical policy transitions without leaving detectable evidence in a production trust model.
 - **I7:** Compromise of one digital credential does not make handwritten signatures valid again.
 
-## 7. Out of scope for Draft 0.2
+## 7. Out of scope for Draft 0.3
 
-This threat model does not yet prescribe:
+This threat model does not prescribe:
 
-- a specific PKI algorithm;
 - a national identity-number format;
 - a particular KEP/QES/eID implementation;
 - a blockchain or distributed ledger;
 - a universal coercion-detection mechanism;
-- jurisdiction-specific liability thresholds.
+- jurisdiction-specific liability thresholds;
+- a production HSM/key-rotation architecture;
+- a specific external transparency or audit-anchoring system.
 
 Those choices belong in implementation profiles and national law, not in the jurisdiction-neutral core protocol.

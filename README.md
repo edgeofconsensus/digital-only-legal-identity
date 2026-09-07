@@ -54,6 +54,8 @@ BENIGN_MISMATCH
 
 There is no administrative shortcut that marks a mismatch resolved by itself. A material contradiction blocks automatic recovery. Successful recovery creates a replacement credential; it does not change `DIGITAL_ONLY`.
 
+The number and combination of independent evidence classes sufficient for enhanced recovery are profile-defined, not a universal DOLI constant. The synthetic reference profile currently proposes a default minimum of **2 distinct `CONSISTENT` evidence classes**. This can be changed for experiments with `DOLI_RECOVERY_MIN_CONSISTENT_EVIDENCE_CLASSES`; duplicate records from the same evidence class do not increase the count.
+
 The reference API treats recovery evidence classifications as synthetic input. It does not claim to implement real citizen identity proofing or a production post-classical identity interview.
 
 ## Technology neutrality
@@ -107,7 +109,7 @@ pytest -q reference/tests
 
 Draft 0.4 changes the synthetic SQLite schema to structurally separate workflow events from effective policy. Draft 0.4.1 adds synthetic credential and recovery tables. If upgrading an older local demo checkout, remove the old local `reference/doli.sqlite3` file before starting. No real data belongs in that database.
 
-Recovery cooling-off defaults to 300 seconds and can be changed for synthetic tests/demos with `DOLI_RECOVERY_COOLING_OFF_SECONDS`. Downgrade cooling-off is independently configured with `DOLI_DOWNGRADE_COOLING_OFF_SECONDS`.
+Recovery cooling-off defaults to 300 seconds and can be changed for synthetic tests/demos with `DOLI_RECOVERY_COOLING_OFF_SECONDS`. Downgrade cooling-off is independently configured with `DOLI_DOWNGRADE_COOLING_OFF_SECONDS`. The proposed recovery-evidence threshold defaults to 2 distinct consistent classes and is configurable with `DOLI_RECOVERY_MIN_CONSISTENT_EVIDENCE_CLASSES`.
 
 ## Reference implementation security boundary
 

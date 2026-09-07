@@ -126,6 +126,10 @@ paths:
   /v1/subjects/{subject_ref}/recovery/evaluate:
     post:
       summary: Evaluate credential-first or enhanced recovery without changing policy
+      description: >-
+        Evidence sufficiency is recovery-assurance-profile defined. The synthetic reference
+        profile defaults to two distinct CONSISTENT evidence classes; duplicate records from
+        the same class do not increase the count.
       parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       requestBody:
         required: true
@@ -142,7 +146,8 @@ paths:
       description: >-
         BENIGN_MISMATCH returns REQUIRES_RECONCILIATION and cannot create a request.
         Reconciliation requires corrected/additional evidence followed by a new evaluation.
-        MATERIAL_CONTRADICTION blocks automatic recovery.
+        MATERIAL_CONTRADICTION blocks automatic recovery. Evidence sufficiency is profile-defined;
+        the synthetic reference profile defaults to two distinct CONSISTENT evidence classes.
       parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       requestBody:
         required: true
@@ -360,7 +365,7 @@ components:
 
     RecoveryDecision:
       type: object
-      required: [subject_ref, route, outcome, material_contradictions, unresolved_mismatches, may_enter_cooling_off, effective_policy_unchanged]
+      required: [subject_ref, route, outcome, material_contradictions, unresolved_mismatches, consistent_evidence_classes, required_consistent_evidence_classes, may_enter_cooling_off, effective_policy_unchanged]
       properties:
         subject_ref: { type: string }
         route: { type: string, enum: [CREDENTIAL_FIRST, ENHANCED_RECOVERY] }
@@ -369,6 +374,14 @@ components:
           enum: [USE_EXISTING_CREDENTIAL, BLOCKED_CONTRADICTION, REQUIRES_RECONCILIATION, INSUFFICIENT_EVIDENCE, READY_FOR_COOLING_OFF]
         material_contradictions: { type: array, items: { type: string } }
         unresolved_mismatches: { type: array, items: { type: string } }
+        consistent_evidence_classes:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        required_consistent_evidence_classes:
+          type: integer
+          minimum: 1
+          description: Recovery-assurance-profile threshold; synthetic reference default is 2.
         may_enter_cooling_off: { type: boolean }
         effective_policy_unchanged: { type: boolean, const: true }
 
@@ -382,8 +395,26 @@ components:
         status: { type: string, const: PENDING }
         requested_at: { type: string, format: date-time }
         not_before: { type: string, format: date-time }
-        decision: { type: object }
+        decision: { $ref: '#/components/schemas/RecoveryDecisionPayload' }
         effective_policy_unchanged: { type: boolean, const: true }
+
+    RecoveryDecisionPayload:
+      type: object
+      required: [route, outcome, material_contradictions, unresolved_mismatches, consistent_evidence_classes, required_consistent_evidence_classes]
+      properties:
+        route: { type: string, enum: [CREDENTIAL_FIRST, ENHANCED_RECOVERY] }
+        outcome:
+          type: string
+          enum: [USE_EXISTING_CREDENTIAL, BLOCKED_CONTRADICTION, REQUIRES_RECONCILIATION, INSUFFICIENT_EVIDENCE, READY_FOR_COOLING_OFF]
+        material_contradictions: { type: array, items: { type: string } }
+        unresolved_mismatches: { type: array, items: { type: string } }
+        consistent_evidence_classes:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        required_consistent_evidence_classes:
+          type: integer
+          minimum: 1
 
     RecoveryStatus:
       type: object
@@ -413,7 +444,7 @@ components:
         requested_at: { type: string, format: date-time }
         not_before: { type: string, format: date-time }
         status: { type: string, enum: [PENDING, CANCELLED, COMPLETED] }
-        decision: { type: object }
+        decision: { $ref: '#/components/schemas/RecoveryDecisionPayload' }
         completed_at: { type: [string, 'null'], format: date-time }
 
     SigningEvidenceInput:

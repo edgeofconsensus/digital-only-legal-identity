@@ -22,6 +22,7 @@ def test_existing_high_assurance_credential_short_circuits_enhanced_recovery():
 
     assert decision.route == "CREDENTIAL_FIRST"
     assert decision.outcome == "USE_EXISTING_CREDENTIAL"
+    assert decision.required_consistent_evidence_classes == 2
     assert not decision.may_enter_cooling_off
 
 

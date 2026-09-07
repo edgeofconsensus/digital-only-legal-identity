@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Digital-Only Legal Identity Reference API
-  version: 0.1.0
+  version: 0.3.1
   description: >-
     Demonstration API for a jurisdiction-neutral handwritten-signature policy registry.
     Uses synthetic subjects only and has no legal effect.
@@ -14,47 +14,64 @@ paths:
       responses:
         '201':
           description: Synthetic subject created
-  /v1/subjects/{subject_id}/activate-digital-only:
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [subject_ref, policy]
+                properties:
+                  subject_ref: { type: string }
+                  policy:
+                    type: string
+                    enum: [HANDWRITTEN_ALLOWED]
+
+  /v1/subjects/{subject_ref}/activate-digital-only:
     post:
-      summary: Request DIGITAL_ONLY activation
+      summary: Activate DIGITAL_ONLY for a synthetic subject
       parameters:
-        - in: path
-          name: subject_id
-          required: true
-          schema: { type: string }
+        - $ref: '#/components/parameters/SubjectRef'
       responses:
-        '200': { description: Activation recorded }
+        '200':
+          description: Activation event appended
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyEvent' }
         '404': { description: Subject not found }
-  /v1/subjects/{subject_id}/request-downgrade:
+        '409': { description: Subject is already DIGITAL_ONLY }
+
+  /v1/subjects/{subject_ref}/request-downgrade:
     post:
-      summary: Request downgrade from DIGITAL_ONLY
+      summary: Record a pending downgrade request
       parameters:
-        - in: path
-          name: subject_id
-          required: true
-          schema: { type: string }
+        - $ref: '#/components/parameters/SubjectRef'
       responses:
-        '200': { description: Downgrade request recorded }
-        '409': { description: Subject is not DIGITAL_ONLY }
-  /v1/subjects/{subject_id}/cancel-downgrade:
+        '200':
+          description: Downgrade request event appended; effective policy remains DIGITAL_ONLY
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyEvent' }
+        '404': { description: Subject not found }
+        '409': { description: Invalid downgrade request }
+
+  /v1/subjects/{subject_ref}/cancel-downgrade:
     post:
       summary: Cancel a pending downgrade
       parameters:
-        - in: path
-          name: subject_id
-          required: true
-          schema: { type: string }
+        - $ref: '#/components/parameters/SubjectRef'
       responses:
-        '200': { description: Downgrade cancelled }
+        '200':
+          description: Cancellation event appended
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyEvent' }
+        '404': { description: Subject not found }
         '409': { description: No downgrade pending }
-  /v1/signature-policy/{subject_id}:
+
+  /v1/signature-policy/{subject_ref}:
     get:
       summary: Resolve current or historical signature policy
       parameters:
-        - in: path
-          name: subject_id
-          required: true
-          schema: { type: string }
+        - $ref: '#/components/parameters/SubjectRef'
         - in: query
           name: at
           required: false
@@ -62,26 +79,144 @@ paths:
           schema: { type: string, format: date-time }
       responses:
         '200':
-          description: Authoritative demonstration assertion
+          description: Signed demonstration assertion
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PolicyAssertion' }
+        '400': { description: Invalid ISO-8601 timestamp }
+        '404': { description: Subject not found }
+
+  /v1/subjects/{subject_ref}/events:
+    get:
+      summary: Return append-only demonstration policy events for a synthetic subject
+      parameters:
+        - $ref: '#/components/parameters/SubjectRef'
+      responses:
+        '200':
+          description: Policy event history
           content:
             application/json:
               schema:
-                type: object
-                required: [subject_ref, policy, queried_at, assertion_issued_at, assertion_id]
-                properties:
-                  subject_ref: { type: string }
-                  policy:
-                    type: string
-                    enum: [HANDWRITTEN_ALLOWED, DIGITAL_ONLY, INDETERMINATE]
-                  queried_at: { type: string, format: date-time }
-                  assertion_issued_at: { type: string, format: date-time }
-                  assertion_id: { type: string }
-                  schema_version: { type: string }
-                  jurisdiction: { type: string }
-                  integrity_proof: { type: string }
+                type: array
+                items: { $ref: '#/components/schemas/StoredPolicyEvent' }
         '404': { description: Subject not found }
+
+  /v1/registry/public-key:
+    get:
+      summary: Return the demonstration registry assertion-verification key
+      responses:
+        '200':
+          description: Registry public key metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistryPublicKey' }
+
   /v1/admin/simulate-outage:
     post:
       summary: Toggle simulated registry outage for fail-closed demonstration
       responses:
-        '200': { description: Simulation state changed }
+        '200':
+          description: Simulation state changed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [simulated_outage]
+                properties:
+                  simulated_outage: { type: boolean }
+
+components:
+  parameters:
+    SubjectRef:
+      in: path
+      name: subject_ref
+      required: true
+      schema: { type: string }
+
+  schemas:
+    PolicyEvent:
+      type: object
+      required:
+        - transition_id
+        - subject_ref
+        - state
+        - requested_at
+        - effective_at
+        - previous_event_hash
+        - event_hash
+      properties:
+        transition_id: { type: string }
+        subject_ref: { type: string }
+        state:
+          type: string
+          enum: [DIGITAL_ONLY, DOWNGRADE_PENDING]
+        requested_at: { type: string, format: date-time }
+        effective_at: { type: string, format: date-time }
+        previous_event_hash:
+          oneOf:
+            - { type: string }
+            - { type: 'null' }
+        event_hash: { type: string }
+
+    StoredPolicyEvent:
+      allOf:
+        - $ref: '#/components/schemas/PolicyEvent'
+        - type: object
+          required: [seq]
+          properties:
+            seq: { type: integer }
+
+    Signature:
+      type: object
+      required: [alg, key_id, public_key, value]
+      properties:
+        alg: { type: string, const: Ed25519 }
+        key_id: { type: string }
+        public_key: { type: string, description: Base64url-encoded raw Ed25519 public key; convenience data only }
+        value: { type: string, description: Base64url-encoded Ed25519 signature }
+
+    PolicyAssertion:
+      type: object
+      required:
+        - subject_ref
+        - policy
+        - queried_at
+        - assertion_issued_at
+        - assertion_expires_at
+        - assertion_id
+        - issuer
+        - key_id
+        - schema_version
+        - jurisdiction
+        - event_chain_head
+        - legal_effect
+        - signature
+      properties:
+        subject_ref: { type: string }
+        policy:
+          type: string
+          enum: [HANDWRITTEN_ALLOWED, DIGITAL_ONLY, INDETERMINATE]
+        queried_at: { type: string, format: date-time }
+        assertion_issued_at: { type: string, format: date-time }
+        assertion_expires_at: { type: string, format: date-time }
+        assertion_id: { type: string }
+        issuer: { type: string }
+        key_id: { type: string }
+        schema_version: { type: string, const: '0.3' }
+        jurisdiction: { type: string }
+        event_chain_head:
+          oneOf:
+            - { type: string }
+            - { type: 'null' }
+        legal_effect: { type: string, const: none-reference-implementation }
+        signature: { $ref: '#/components/schemas/Signature' }
+
+    RegistryPublicKey:
+      type: object
+      required: [issuer, alg, key_id, public_key, use]
+      properties:
+        issuer: { type: string }
+        alg: { type: string, const: Ed25519 }
+        key_id: { type: string }
+        public_key: { type: string }
+        use: { type: string, const: assertion-verification }

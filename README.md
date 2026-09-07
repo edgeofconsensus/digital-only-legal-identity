@@ -2,6 +2,8 @@
 
 An open proposal and reference implementation for a legal right to refuse recognition of a handwritten signature as sufficient evidence of a person's legal intent.
 
+For an institution-facing summary focused on Ukraine, see [`docs/institutional-brief-ukraine.md`](docs/institutional-brief-ukraine.md).
+
 ## Core principle
 
 A person should be able to formally activate a **digital-only legal identity** status. From its effective date, a handwritten signature attributed to that person should no longer be sufficient, by itself, to establish that person's legal intent in transactions covered by the regime.

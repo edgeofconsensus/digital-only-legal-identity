@@ -1,0 +1,7 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+reference/*.sqlite3
+reference/*.sqlite3-wal
+reference/*.sqlite3-shm
+reference/dev-signing-key.pem

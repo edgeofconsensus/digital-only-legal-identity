@@ -155,7 +155,7 @@ class RecoveryRequestInput(BaseModel):
     evidence: list[RecoveryEvidenceInput] = Field(default_factory=list)
 
 
-def evaluate_input(registry: CredentialRegistry, subject_ref: str, evidence) :
+def evaluate_input(registry: CredentialRegistry, subject_ref: str, evidence):
     return evaluate_recovery(
         registry,
         subject_ref,

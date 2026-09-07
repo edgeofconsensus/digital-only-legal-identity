@@ -35,6 +35,8 @@ class RecoveryDecision:
     outcome: str
     material_contradictions: tuple[str, ...] = ()
     unresolved_mismatches: tuple[str, ...] = ()
+    consistent_evidence_classes: tuple[str, ...] = ()
+    required_consistent_evidence_classes: int = 0
 
     @property
     def may_enter_cooling_off(self) -> bool:
@@ -66,7 +68,11 @@ def evaluate_recovery(
     evidence: Iterable[RecoveryEvidence] = (),
     *,
     accepted_assurance_levels: Iterable[str] = ("HIGH",),
+    min_consistent_evidence_classes: int = 2,
 ) -> RecoveryDecision:
+    if min_consistent_evidence_classes < 1:
+        raise ValueError("min_consistent_evidence_classes must be at least 1")
+
     route = recovery_route(
         registry,
         subject_ref,
@@ -86,6 +92,7 @@ def evaluate_recovery(
             route="ENHANCED_RECOVERY",
             outcome="BLOCKED_CONTRADICTION",
             material_contradictions=contradictions,
+            required_consistent_evidence_classes=min_consistent_evidence_classes,
         )
 
     mismatches = tuple(
@@ -98,23 +105,25 @@ def evaluate_recovery(
             route="ENHANCED_RECOVERY",
             outcome="REQUIRES_RECONCILIATION",
             unresolved_mismatches=mismatches,
+            required_consistent_evidence_classes=min_consistent_evidence_classes,
         )
 
-    if not evidence or all(item.result in {"ABSENT", "STALE"} for item in evidence):
+    consistent = tuple(
+        sorted({item.evidence_class for item in evidence if item.result == "CONSISTENT"})
+    )
+    if len(consistent) < min_consistent_evidence_classes:
         return RecoveryDecision(
             route="ENHANCED_RECOVERY",
             outcome="INSUFFICIENT_EVIDENCE",
-        )
-
-    if not any(item.result == "CONSISTENT" for item in evidence):
-        return RecoveryDecision(
-            route="ENHANCED_RECOVERY",
-            outcome="INSUFFICIENT_EVIDENCE",
+            consistent_evidence_classes=consistent,
+            required_consistent_evidence_classes=min_consistent_evidence_classes,
         )
 
     return RecoveryDecision(
         route="ENHANCED_RECOVERY",
         outcome="READY_FOR_COOLING_OFF",
+        consistent_evidence_classes=consistent,
+        required_consistent_evidence_classes=min_consistent_evidence_classes,
     )
 
 

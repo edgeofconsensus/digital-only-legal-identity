@@ -8,9 +8,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from reference.credential_registry import CredentialRecord, CredentialRegistry, recovery_route
+from reference.credential_registry import CredentialRecord, CredentialRegistry
 from reference.recovery_engine import RecoveryEvidence, evaluate_recovery
 
 
@@ -32,6 +32,13 @@ def parse_ts(value: str) -> datetime:
 
 def recovery_cooling_off() -> timedelta:
     return timedelta(seconds=int(os.getenv("DOLI_RECOVERY_COOLING_OFF_SECONDS", "300")))
+
+
+def recovery_min_consistent_evidence_classes() -> int:
+    value = int(os.getenv("DOLI_RECOVERY_MIN_CONSISTENT_EVIDENCE_CLASSES", "2"))
+    if value < 1:
+        raise ValueError("DOLI_RECOVERY_MIN_CONSISTENT_EVIDENCE_CLASSES must be at least 1")
+    return value
 
 
 def db() -> sqlite3.Connection:
@@ -111,6 +118,17 @@ def credential_dict(row: sqlite3.Row) -> dict:
     return dict(row)
 
 
+def decision_payload(decision) -> dict:
+    return {
+        "route": decision.route,
+        "outcome": decision.outcome,
+        "material_contradictions": list(decision.material_contradictions),
+        "unresolved_mismatches": list(decision.unresolved_mismatches),
+        "consistent_evidence_classes": list(decision.consistent_evidence_classes),
+        "required_consistent_evidence_classes": decision.required_consistent_evidence_classes,
+    }
+
+
 class CredentialInput(BaseModel):
     credential_ref: str
     assurance_level: str = "HIGH"
@@ -128,13 +146,22 @@ class RecoveryEvidenceInput(BaseModel):
 
 
 class RecoveryEvaluationInput(BaseModel):
-    evidence: list[RecoveryEvidenceInput] = []
+    evidence: list[RecoveryEvidenceInput] = Field(default_factory=list)
 
 
 class RecoveryRequestInput(BaseModel):
     proposed_credential_ref: str
     assurance_level: str = "HIGH"
-    evidence: list[RecoveryEvidenceInput] = []
+    evidence: list[RecoveryEvidenceInput] = Field(default_factory=list)
+
+
+def evaluate_input(registry: CredentialRegistry, subject_ref: str, evidence) :
+    return evaluate_recovery(
+        registry,
+        subject_ref,
+        [RecoveryEvidence(**item.model_dump()) for item in evidence],
+        min_consistent_evidence_classes=recovery_min_consistent_evidence_classes(),
+    )
 
 
 @router.post("/v1/subjects/{subject_ref}/credentials", status_code=201)
@@ -241,17 +268,10 @@ def evaluate_subject_recovery(subject_ref: str, body: RecoveryEvaluationInput):
     with db() as conn:
         require_subject(conn, subject_ref)
         registry = registry_from_db(conn, subject_ref)
-        decision = evaluate_recovery(
-            registry,
-            subject_ref,
-            [RecoveryEvidence(**item.model_dump()) for item in body.evidence],
-        )
+        decision = evaluate_input(registry, subject_ref, body.evidence)
         return {
             "subject_ref": subject_ref,
-            "route": decision.route,
-            "outcome": decision.outcome,
-            "material_contradictions": list(decision.material_contradictions),
-            "unresolved_mismatches": list(decision.unresolved_mismatches),
+            **decision_payload(decision),
             "may_enter_cooling_off": decision.may_enter_cooling_off,
             "effective_policy_unchanged": True,
         }
@@ -274,19 +294,10 @@ def request_enhanced_recovery(subject_ref: str, body: RecoveryRequestInput):
             raise HTTPException(status_code=409, detail="Proposed credential already exists")
 
         registry = registry_from_db(conn, subject_ref)
-        decision = evaluate_recovery(
-            registry,
-            subject_ref,
-            [RecoveryEvidence(**item.model_dump()) for item in body.evidence],
-        )
-        decision_payload = {
-            "route": decision.route,
-            "outcome": decision.outcome,
-            "material_contradictions": list(decision.material_contradictions),
-            "unresolved_mismatches": list(decision.unresolved_mismatches),
-        }
+        decision = evaluate_input(registry, subject_ref, body.evidence)
+        payload = decision_payload(decision)
         if not decision.may_enter_cooling_off:
-            raise HTTPException(status_code=409, detail=decision_payload)
+            raise HTTPException(status_code=409, detail=payload)
 
         requested_at = now_utc()
         request_id = str(uuid4())
@@ -303,7 +314,7 @@ def request_enhanced_recovery(subject_ref: str, body: RecoveryRequestInput):
                 body.assurance_level,
                 iso(requested_at),
                 iso(not_before),
-                json.dumps(decision_payload, sort_keys=True),
+                json.dumps(payload, sort_keys=True),
             ),
         )
         conn.commit()
@@ -314,7 +325,7 @@ def request_enhanced_recovery(subject_ref: str, body: RecoveryRequestInput):
             "status": "PENDING",
             "requested_at": iso(requested_at),
             "not_before": iso(not_before),
-            "decision": decision_payload,
+            "decision": payload,
             "effective_policy_unchanged": True,
         }
 
@@ -392,11 +403,9 @@ def list_recovery_requests(subject_ref: str):
             "SELECT * FROM recovery_requests WHERE subject_ref=? ORDER BY requested_at, request_id",
             (subject_ref,),
         ).fetchall()
-        return [
-            {
-                **dict(row),
-                "decision": json.loads(row["decision_json"]),
-                "decision_json": None,
-            }
-            for row in rows
-        ]
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["decision"] = json.loads(item.pop("decision_json"))
+            result.append(item)
+        return result

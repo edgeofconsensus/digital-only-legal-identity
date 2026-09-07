@@ -159,6 +159,44 @@ def test_recovery_does_not_downgrade_policy(tmp_path):
     assert client.get(f"/v1/signature-policy/{subject}").json()["policy"] == "DIGITAL_ONLY"
 
 
+def test_recovery_events_never_become_effective_policy(tmp_path):
+    main = load_app(tmp_path)
+    client = TestClient(main.app)
+    subject = client.post("/v1/subjects").json()["subject_ref"]
+    activation = client.post(f"/v1/subjects/{subject}/activate-digital-only").json()
+    recovery_time = main.now_utc()
+
+    entered = client.post(f"/v1/subjects/{subject}/enter-recovery").json()
+    exited = client.post(f"/v1/subjects/{subject}/exit-recovery").json()
+
+    assert entered["effective_policy"] is None
+    assert exited["effective_policy"] is None
+    assert entered["effective_at"] is None
+    assert exited["effective_at"] is None
+    assert client.get(
+        f"/v1/signature-policy/{subject}", params={"at": main.iso(recovery_time)}
+    ).json()["policy"] == "DIGITAL_ONLY"
+    assert client.get(f"/v1/signature-policy/{subject}").json()["policy"] == "DIGITAL_ONLY"
+    assert main.parse_ts(activation["effective_at"]) <= recovery_time
+
+
+def test_recovery_plus_outage_never_fails_open_to_handwriting(tmp_path):
+    main = load_app(tmp_path)
+    client = TestClient(main.app)
+    subject = client.post("/v1/subjects").json()["subject_ref"]
+    client.post(f"/v1/subjects/{subject}/activate-digital-only")
+    client.post(f"/v1/subjects/{subject}/enter-recovery")
+
+    client.post("/v1/admin/simulate-outage")
+    during_outage = client.get(f"/v1/signature-policy/{subject}").json()
+    assert during_outage["policy"] == "INDETERMINATE"
+    assert during_outage["policy"] != "HANDWRITTEN_ALLOWED"
+
+    client.post("/v1/admin/simulate-outage")
+    restored = client.get(f"/v1/signature-policy/{subject}").json()
+    assert restored["policy"] == "DIGITAL_ONLY"
+
+
 def test_outage_is_indeterminate_without_state_change(tmp_path):
     main = load_app(tmp_path)
     client = TestClient(main.app)

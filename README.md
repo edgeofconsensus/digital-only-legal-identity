@@ -23,16 +23,38 @@ A subject who has not activated DOLI remains in the ordinary legal regime. Paral
 
 ## Workflow semantics
 
-Draft 0.4 separates workflow events from effective legal policy. The reference implementation demonstrates:
+Draft 0.4.1 separates workflow events from effective legal policy. The reference implementation demonstrates:
 
 - immediate synthetic `ACTIVATION_EFFECTIVE`;
 - `DOWNGRADE_REQUESTED` with a configurable cooling-off period;
 - `DOWNGRADE_CANCELLED`;
 - `DOWNGRADE_EFFECTIVE` only after cooling-off;
-- `RECOVERY_ENTERED` / `RECOVERY_EXITED` without policy downgrade;
+- recovery workflow without policy downgrade;
 - no outage or infrastructure-failure transition back to handwriting.
 
 A workflow request is never treated as an effective policy merely because it is the newest event.
+
+## Credential and recovery profile
+
+Draft 0.4.1 adds a synthetic credential/recovery layer without adding a third effective policy state.
+
+A subject may have multiple independently revocable and replaceable credentials. If a sufficient authorized credential remains active, recovery is credential-first. If none remains, the reference model can evaluate synthetic enhanced-recovery evidence and, only after a sufficient result, enter a separate recovery cooling-off period.
+
+Evidence results distinguish `CONSISTENT`, `ABSENT`, `STALE`, `BENIGN_MISMATCH` and `MATERIAL_CONTRADICTION`.
+
+A benign mismatch is deliberately non-permissive:
+
+```text
+BENIGN_MISMATCH
+    -> REQUIRES_RECONCILIATION
+    -> reconciliation evidence
+    -> re-evaluation
+    -> [only if sufficient] recovery cooling-off
+```
+
+There is no administrative shortcut that marks a mismatch resolved by itself. A material contradiction blocks automatic recovery. Successful recovery creates a replacement credential; it does not change `DIGITAL_ONLY`.
+
+The reference API treats recovery evidence classifications as synthetic input. It does not claim to implement real citizen identity proofing or a production post-classical identity interview.
 
 ## Technology neutrality
 
@@ -83,17 +105,19 @@ Run the automated tests with:
 pytest -q reference/tests
 ```
 
-Draft 0.4 changes the synthetic SQLite schema to structurally separate workflow events from effective policy. If upgrading a local Draft 0.3 demo checkout, remove the old local `reference/doli.sqlite3` file before starting 0.4. No real data belongs in that database.
+Draft 0.4 changes the synthetic SQLite schema to structurally separate workflow events from effective policy. Draft 0.4.1 adds synthetic credential and recovery tables. If upgrading an older local demo checkout, remove the old local `reference/doli.sqlite3` file before starting. No real data belongs in that database.
+
+Recovery cooling-off defaults to 300 seconds and can be changed for synthetic tests/demos with `DOLI_RECOVERY_COOLING_OFF_SECONDS`. Downgrade cooling-off is independently configured with `DOLI_DOWNGRADE_COOLING_OFF_SECONDS`.
 
 ## Reference implementation security boundary
 
-The current API is a synthetic demonstration only. Mutation, evidence-listing and outage-simulation endpoints are deliberately unauthenticated and are not production interfaces. The development Ed25519 private key is generated locally, stored unencrypted and is not production key management.
+The current API is a synthetic demonstration only. Mutation, credential/recovery, evidence-listing and outage-simulation endpoints are deliberately unauthenticated and are not production interfaces. The development Ed25519 private key is generated locally, stored unencrypted and is not production key management.
 
 The public key embedded in an assertion is convenience data only. A relying party must obtain or pin the authoritative registry key through a trusted channel.
 
-SQLite append-only triggers and per-subject hash chains make many modifications detectable, but they do not prevent a privileged operator from replacing the database with an older internally consistent snapshot. Production deployment requires authorization, protected key management, rotation, external freshness/audit anchoring, anti-enumeration controls, privacy protection for signing evidence and operational continuity guarantees.
+SQLite append-only triggers and per-subject hash chains make many modifications to policy/signing-evidence history detectable, but they do not prevent a privileged operator from replacing the database with an older internally consistent snapshot. Production deployment requires authorization, protected key management, rotation, external freshness/audit anchoring, anti-enumeration controls, privacy protection for signing/recovery evidence and operational continuity guarantees.
 
-The reference SQLite append path is also not hardened as a production concurrent-writer protocol.
+The synthetic credential/recovery tables demonstrate semantics; they are not presented as a production tamper-evident credential ledger. The reference SQLite append path is also not hardened as a production concurrent-writer protocol.
 
 ## Project stages
 
@@ -101,7 +125,7 @@ The reference SQLite append path is also not hardened as a production concurrent
 Define legal semantics, state transitions, threat model and privacy requirements.
 
 **Stage 2 — Reference API**  
-Implement and test a synthetic registry, workflow model and verification endpoint.
+Implement and test a synthetic registry, workflow, credential/recovery model and verification endpoint.
 
 **Stage 3 — Demonstration**  
 Model a relying party checking DOLI before accepting a legal authorization.
@@ -111,7 +135,7 @@ Prepare the Ukrainian normative-technical proposal and pilot profile for institu
 
 ## Status
 
-Draft 0.4 specification / reference implementation and Draft 0.2 Ukrainian policy proposal. This repository does not provide legal advice and does not represent an operational government service.
+Draft 0.4.1 specification / reference implementation and Draft 0.2 Ukrainian policy proposal. This repository does not provide legal advice and does not represent an operational government service.
 
 ## License
 

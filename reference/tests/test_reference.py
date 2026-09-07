@@ -2,8 +2,10 @@ import base64
 import importlib
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi.testclient import TestClient
 
@@ -36,15 +38,28 @@ def test_activation_historical_query_and_signature(tmp_path):
     activated = client.post(f"/v1/subjects/{subject}/activate-digital-only").json()
     after = client.get(f"/v1/signature-policy/{subject}").json()
     assert after["policy"] == "DIGITAL_ONLY"
+    assert after["issuer"] == main.REGISTRY_ISSUER
+    assert main.parse_ts(after["assertion_expires_at"]) > main.parse_ts(after["assertion_issued_at"])
 
     historical = client.get(
         f"/v1/signature-policy/{subject}", params={"at": before["queried_at"]}
     ).json()
     assert historical["policy"] == "HANDWRITTEN_ALLOWED"
 
+    trusted = client.get("/v1/registry/public-key").json()
     signature = after.pop("signature")
-    public_key = Ed25519PublicKey.from_public_bytes(b64url_decode(signature["public_key"]))
+    assert signature["key_id"] == trusted["key_id"] == after["key_id"]
+    assert signature["public_key"] == trusted["public_key"]
+    public_key = Ed25519PublicKey.from_public_bytes(b64url_decode(trusted["public_key"]))
     public_key.verify(b64url_decode(signature["value"]), canonical_json(after))
+
+    tampered = {**after, "policy": "HANDWRITTEN_ALLOWED"}
+    try:
+        public_key.verify(b64url_decode(signature["value"]), canonical_json(tampered))
+    except InvalidSignature:
+        pass
+    else:
+        raise AssertionError("tampered assertion unexpectedly verified")
 
     events = client.get(f"/v1/subjects/{subject}/events").json()
     assert len(events) == 1
@@ -76,6 +91,40 @@ def test_outage_is_indeterminate_not_handwritten_allowed(tmp_path):
     subject = client.post("/v1/subjects").json()["subject_ref"]
     client.post(f"/v1/subjects/{subject}/activate-digital-only")
     client.post("/v1/admin/simulate-outage")
+
+    result = client.get(f"/v1/signature-policy/{subject}").json()
+    assert result["policy"] == "INDETERMINATE"
+
+
+def test_resolution_uses_effective_timestamp_not_append_order(tmp_path):
+    main = load_app(tmp_path)
+    client = TestClient(main.app)
+    subject = client.post("/v1/subjects").json()["subject_ref"]
+    base = main.now_utc()
+
+    with main.db() as conn:
+        main.append_event(conn, subject, "DIGITAL_ONLY", effective_at=base + timedelta(days=2))
+        main.append_event(conn, subject, "HANDWRITTEN_ALLOWED", effective_at=base + timedelta(days=1))
+
+    result = client.get(
+        f"/v1/signature-policy/{subject}", params={"at": main.iso(base + timedelta(days=3))}
+    ).json()
+    assert result["policy"] == "DIGITAL_ONLY"
+
+
+def test_event_chain_tamper_fails_closed(tmp_path):
+    main = load_app(tmp_path)
+    client = TestClient(main.app)
+    subject = client.post("/v1/subjects").json()["subject_ref"]
+    client.post(f"/v1/subjects/{subject}/activate-digital-only")
+
+    with main.db() as conn:
+        conn.execute("DROP TRIGGER policy_events_no_update")
+        conn.execute(
+            "UPDATE policy_events SET state='HANDWRITTEN_ALLOWED' WHERE subject_ref=?",
+            (subject,),
+        )
+        conn.commit()
 
     result = client.get(f"/v1/signature-policy/{subject}").json()
     assert result["policy"] == "INDETERMINATE"

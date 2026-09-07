@@ -1,0 +1,87 @@
+openapi: 3.1.0
+info:
+  title: Digital-Only Legal Identity Reference API
+  version: 0.1.0
+  description: >-
+    Demonstration API for a jurisdiction-neutral handwritten-signature policy registry.
+    Uses synthetic subjects only and has no legal effect.
+servers:
+  - url: http://localhost:8000
+paths:
+  /v1/subjects:
+    post:
+      summary: Create a synthetic policy subject
+      responses:
+        '201':
+          description: Synthetic subject created
+  /v1/subjects/{subject_id}/activate-digital-only:
+    post:
+      summary: Request DIGITAL_ONLY activation
+      parameters:
+        - in: path
+          name: subject_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Activation recorded }
+        '404': { description: Subject not found }
+  /v1/subjects/{subject_id}/request-downgrade:
+    post:
+      summary: Request downgrade from DIGITAL_ONLY
+      parameters:
+        - in: path
+          name: subject_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Downgrade request recorded }
+        '409': { description: Subject is not DIGITAL_ONLY }
+  /v1/subjects/{subject_id}/cancel-downgrade:
+    post:
+      summary: Cancel a pending downgrade
+      parameters:
+        - in: path
+          name: subject_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Downgrade cancelled }
+        '409': { description: No downgrade pending }
+  /v1/signature-policy/{subject_id}:
+    get:
+      summary: Resolve current or historical signature policy
+      parameters:
+        - in: path
+          name: subject_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: at
+          required: false
+          description: ISO-8601 legal timestamp. Defaults to current UTC time.
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Authoritative demonstration assertion
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [subject_ref, policy, queried_at, assertion_issued_at, assertion_id]
+                properties:
+                  subject_ref: { type: string }
+                  policy:
+                    type: string
+                    enum: [HANDWRITTEN_ALLOWED, DIGITAL_ONLY, INDETERMINATE]
+                  queried_at: { type: string, format: date-time }
+                  assertion_issued_at: { type: string, format: date-time }
+                  assertion_id: { type: string }
+                  schema_version: { type: string }
+                  jurisdiction: { type: string }
+                  integrity_proof: { type: string }
+        '404': { description: Subject not found }
+  /v1/admin/simulate-outage:
+    post:
+      summary: Toggle simulated registry outage for fail-closed demonstration
+      responses:
+        '200': { description: Simulation state changed }

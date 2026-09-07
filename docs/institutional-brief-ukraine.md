@@ -34,11 +34,11 @@ A production design should aim for:
 - minimal disclosure to relying parties;
 - interoperability with existing Ukrainian electronic-identification and qualified-signature infrastructure;
 - strong authentication for activation and any later status change;
-- clear downgrade, recovery, and exceptional-access rules;
+- clear downgrade and credential-recovery rules;
 - verifiable issuer keys, rotation, revocation, and external audit anchoring;
 - anti-enumeration and privacy protections;
 - defined behavior during registry or network outages;
-- accessibility and legally defined fallback procedures.
+- accessibility and legally defined continuity procedures that preserve equivalent assurance and do not silently restore handwritten-signature sufficiency for a person whose `DIGITAL_ONLY` policy remains effective.
 
 ## Non-goals
 
@@ -48,21 +48,26 @@ The proposal does **not** require:
 - replacing existing qualified electronic signatures or Ukrainian digital-identity systems;
 - storing unnecessary transaction data in a central registry;
 - treating the current reference API as production-ready infrastructure;
-- assuming that a technical mechanism alone determines legal validity.
+- assuming that a technical mechanism alone determines legal validity;
+- treating handwriting as an emergency fallback after `DIGITAL_ONLY` has become effective.
 
 ## Reference implementation
 
 The repository contains a small synthetic reference API used to make the policy primitive testable.
 
-The current implementation demonstrates:
+The current Draft 0.4.1 implementation demonstrates:
 
 - time-dependent policy resolution;
 - signed assertions over the resolved policy;
 - an event-chain integrity reference;
 - synthetic identities only;
-- explicit handling of an indeterminate verification result.
+- explicit handling of an indeterminate verification result;
+- a set of independently revocable/replaceable synthetic credentials;
+- credential-first recovery routing;
+- enhanced-recovery evidence classification with contradiction and reconciliation gates;
+- a profile-defined evidence-sufficiency threshold and recovery cooling-off that do not alter the effective DOLI policy.
 
-The implementation intentionally exposes several development-only security limitations. It is a protocol demonstration, not an operational registry and not a government service.
+The implementation intentionally exposes several development-only security limitations. It is a protocol demonstration, not an operational registry and not a government service. Its recovery evidence is synthetic input; it does not perform production identity proofing.
 
 ## Questions for institutional review
 
@@ -71,9 +76,10 @@ An initial review could focus on the following questions:
 1. Is the proposed opt-in legal status compatible with Ukrainian civil-law, electronic-trust-services, notarial, banking, and administrative frameworks?
 2. Which existing electronic authorization mechanisms could satisfy the `DIGITAL_ONLY` requirement without creating a parallel identity system?
 3. Which institution, if any, could authoritatively resolve the policy state at a historical time while minimizing personal-data exposure?
-4. What activation, cooling-off, downgrade, recovery, inheritance, incapacity, and emergency procedures would be legally necessary?
+4. What activation, cooling-off, downgrade, credential-recovery, inheritance, incapacity, and emergency-continuity procedures would be legally necessary?
 5. How should offline or unavailable-registry cases be treated without silently weakening the declared policy?
 6. Which transaction classes should be in scope, excluded, or introduced only through a limited pilot?
+7. Which enhanced-recovery assurance profile should determine the number and combination of independent evidence classes sufficient to admit a request into cooling-off?
 
 ## Suggested next step
 
@@ -83,4 +89,4 @@ This keeps legal interpretation, security architecture, privacy, and implementat
 
 ## Project status
 
-Concept and reference implementation. Open for legal, policy, security, cryptographic, privacy, accessibility, and interoperability review.
+Concept and Draft 0.4.1 reference implementation. Open for legal, policy, security, cryptographic, privacy, accessibility, and interoperability review.

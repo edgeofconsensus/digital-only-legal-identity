@@ -1,19 +1,20 @@
 openapi: 3.1.0
 info:
   title: Digital-Only Legal Identity Reference API
-  version: 0.3.1
+  version: 0.4.1
   description: >-
-    Demonstration API for a jurisdiction-neutral handwritten-signature policy registry.
-    Uses synthetic subjects only and has no legal effect.
+    Synthetic demonstration API for DOLI policy, workflow events, signed assertions,
+    credential continuity, enhanced recovery and minimal signing-evidence commitments.
+    No legal effect.
 servers:
   - url: http://localhost:8000
 paths:
   /v1/subjects:
     post:
-      summary: Create a synthetic policy subject
+      summary: Create a synthetic subject in the ordinary legal regime
       responses:
         '201':
-          description: Synthetic subject created
+          description: Subject created
           content:
             application/json:
               schema:
@@ -21,99 +22,234 @@ paths:
                 required: [subject_ref, policy]
                 properties:
                   subject_ref: { type: string }
-                  policy:
-                    type: string
-                    enum: [HANDWRITTEN_ALLOWED]
+                  policy: { type: string, const: HANDWRITTEN_ALLOWED }
 
   /v1/subjects/{subject_ref}/activate-digital-only:
     post:
-      summary: Activate DIGITAL_ONLY for a synthetic subject
-      parameters:
-        - $ref: '#/components/parameters/SubjectRef'
+      summary: Append an effective DIGITAL_ONLY activation
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       responses:
-        '200':
-          description: Activation event appended
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicyEvent' }
+        '200': { description: Activation effective, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
         '404': { description: Subject not found }
-        '409': { description: Subject is already DIGITAL_ONLY }
+        '409': { description: Subject already DIGITAL_ONLY }
 
   /v1/subjects/{subject_ref}/request-downgrade:
     post:
-      summary: Record a pending downgrade request
-      parameters:
-        - $ref: '#/components/parameters/SubjectRef'
+      summary: Request downgrade without changing effective policy
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       responses:
-        '200':
-          description: Downgrade request event appended; effective policy remains DIGITAL_ONLY
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicyEvent' }
+        '200': { description: Downgrade requested, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
         '404': { description: Subject not found }
-        '409': { description: Invalid downgrade request }
+        '409': { description: Invalid or duplicate request }
 
   /v1/subjects/{subject_ref}/cancel-downgrade:
     post:
       summary: Cancel a pending downgrade
-      parameters:
-        - $ref: '#/components/parameters/SubjectRef'
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200': { description: Downgrade cancelled, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
+        '409': { description: No downgrade pending }
+
+  /v1/subjects/{subject_ref}/complete-downgrade:
+    post:
+      summary: Complete downgrade after cooling-off
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200': { description: HANDWRITTEN_ALLOWED becomes effective, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
+        '409': { description: No pending request or cooling-off still active }
+
+  /v1/subjects/{subject_ref}/enter-recovery:
+    post:
+      summary: Record legacy demonstration recovery entry without changing policy
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200': { description: Recovery entered, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
+        '409': { description: Recovery demonstration requires DIGITAL_ONLY }
+
+  /v1/subjects/{subject_ref}/exit-recovery:
+    post:
+      summary: Record legacy demonstration recovery exit without changing policy
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200': { description: Recovery exited, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
+        '409': { description: Subject not in recovery }
+
+  /v1/subjects/{subject_ref}/credentials:
+    post:
+      summary: Register a synthetic authorized credential
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CredentialInput' }
+      responses:
+        '201': { description: Credential registered, content: { application/json: { schema: { $ref: '#/components/schemas/Credential' } } } }
+        '404': { description: Subject not found }
+        '409': { description: Credential already exists }
+    get:
+      summary: List synthetic credentials for a subject
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       responses:
         '200':
-          description: Cancellation event appended
+          description: Credential set
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PolicyEvent' }
+              schema: { type: array, items: { $ref: '#/components/schemas/Credential' } }
+
+  /v1/subjects/{subject_ref}/credentials/{credential_ref}/revoke:
+    post:
+      summary: Revoke one credential without changing effective legal policy
+      parameters:
+        - $ref: '#/components/parameters/SubjectRef'
+        - $ref: '#/components/parameters/CredentialRef'
+      responses:
+        '200': { description: Credential revoked, content: { application/json: { schema: { $ref: '#/components/schemas/Credential' } } } }
+        '404': { description: Subject or credential not found }
+
+  /v1/subjects/{subject_ref}/credentials/{credential_ref}/replace:
+    post:
+      summary: Replace an active credential without policy downgrade
+      parameters:
+        - $ref: '#/components/parameters/SubjectRef'
+        - $ref: '#/components/parameters/CredentialRef'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CredentialReplacementInput' }
+      responses:
+        '201': { description: Replacement credential created, content: { application/json: { schema: { $ref: '#/components/schemas/Credential' } } } }
+        '404': { description: Subject or credential not found }
+        '409': { description: Credential is not active or replacement already exists }
+
+  /v1/subjects/{subject_ref}/recovery/evaluate:
+    post:
+      summary: Evaluate credential-first or enhanced recovery without changing policy
+      description: >-
+        Evidence sufficiency is recovery-assurance-profile defined. The synthetic reference
+        profile defaults to two distinct CONSISTENT evidence classes; duplicate records from
+        the same class do not increase the count.
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecoveryEvaluationInput' }
+      responses:
+        '200': { description: Recovery decision, content: { application/json: { schema: { $ref: '#/components/schemas/RecoveryDecision' } } } }
         '404': { description: Subject not found }
-        '409': { description: No downgrade pending }
+
+  /v1/subjects/{subject_ref}/recovery/request:
+    post:
+      summary: Start enhanced recovery cooling-off only after a sufficient evaluation
+      description: >-
+        BENIGN_MISMATCH returns REQUIRES_RECONCILIATION and cannot create a request.
+        Reconciliation requires corrected/additional evidence followed by a new evaluation.
+        MATERIAL_CONTRADICTION blocks automatic recovery. Evidence sufficiency is profile-defined;
+        the synthetic reference profile defaults to two distinct CONSISTENT evidence classes.
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecoveryRequestInput' }
+      responses:
+        '201': { description: Recovery cooling-off request created, content: { application/json: { schema: { $ref: '#/components/schemas/RecoveryRequest' } } } }
+        '404': { description: Subject not found }
+        '409': { description: Not DIGITAL_ONLY, pending request, existing proposed credential, credential-first route, insufficient evidence, reconciliation required, or material contradiction }
+
+  /v1/subjects/{subject_ref}/recovery/{request_id}/cancel:
+    post:
+      summary: Cancel a pending credential-recovery request without changing policy
+      parameters:
+        - $ref: '#/components/parameters/SubjectRef'
+        - $ref: '#/components/parameters/RecoveryRequestId'
+      responses:
+        '200': { description: Recovery cancelled, content: { application/json: { schema: { $ref: '#/components/schemas/RecoveryStatus' } } } }
+        '404': { description: Recovery request not found }
+        '409': { description: Recovery request not pending }
+
+  /v1/subjects/{subject_ref}/recovery/{request_id}/complete:
+    post:
+      summary: Create a replacement credential after recovery cooling-off
+      description: Completion preserves DIGITAL_ONLY and is not a policy transition.
+      parameters:
+        - $ref: '#/components/parameters/SubjectRef'
+        - $ref: '#/components/parameters/RecoveryRequestId'
+      responses:
+        '201': { description: Recovery completed and credential created, content: { application/json: { schema: { $ref: '#/components/schemas/RecoveryCompletion' } } } }
+        '404': { description: Recovery request not found }
+        '409': { description: Not pending, cooling-off active, policy changed, or proposed credential exists }
+
+  /v1/subjects/{subject_ref}/recovery:
+    get:
+      summary: List synthetic credential-recovery requests
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200':
+          description: Recovery request history
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/StoredRecoveryRequest' } }
 
   /v1/signature-policy/{subject_ref}:
     get:
-      summary: Resolve current or historical signature policy
+      summary: Resolve effective policy at legal time T
       parameters:
         - $ref: '#/components/parameters/SubjectRef'
         - in: query
           name: at
           required: false
-          description: ISO-8601 legal timestamp. Defaults to current UTC time.
           schema: { type: string, format: date-time }
       responses:
-        '200':
-          description: Signed demonstration assertion
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicyAssertion' }
-        '400': { description: Invalid ISO-8601 timestamp }
+        '200': { description: Signed assertion, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyAssertion' } } } }
+        '400': { description: Invalid timestamp }
         '404': { description: Subject not found }
 
   /v1/subjects/{subject_ref}/events:
     get:
-      summary: Return append-only demonstration policy events for a synthetic subject
-      parameters:
-        - $ref: '#/components/parameters/SubjectRef'
+      summary: Return append-only policy/workflow history
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       responses:
         '200':
-          description: Policy event history
+          description: Event history
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/StoredPolicyEvent' }
-        '404': { description: Subject not found }
+              schema: { type: array, items: { $ref: '#/components/schemas/StoredPolicyEvent' } }
+
+  /v1/subjects/{subject_ref}/signing-evidence:
+    post:
+      summary: Record a document commitment; document content is not stored
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SigningEvidenceInput' }
+      responses:
+        '201': { description: Evidence recorded, content: { application/json: { schema: { $ref: '#/components/schemas/SigningEvidence' } } } }
+        '400': { description: Invalid SHA-256 digest or timestamp }
+    get:
+      summary: Return demonstration signing-evidence history
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200':
+          description: Evidence history
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/StoredSigningEvidence' } }
+        '503': { description: Evidence-chain integrity failure }
 
   /v1/registry/public-key:
     get:
-      summary: Return the demonstration registry assertion-verification key
+      summary: Return demonstration assertion-verification key
       responses:
-        '200':
-          description: Registry public key metadata
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/RegistryPublicKey' }
+        '200': { description: Registry public key, content: { application/json: { schema: { $ref: '#/components/schemas/RegistryPublicKey' } } } }
 
   /v1/admin/simulate-outage:
     post:
-      summary: Toggle simulated registry outage for fail-closed demonstration
+      summary: Toggle simulated outage; does not mutate policy
       responses:
         '200':
           description: Simulation state changed
@@ -122,8 +258,7 @@ paths:
               schema:
                 type: object
                 required: [simulated_outage]
-                properties:
-                  simulated_outage: { type: boolean }
+                properties: { simulated_outage: { type: boolean } }
 
 components:
   parameters:
@@ -132,30 +267,38 @@ components:
       name: subject_ref
       required: true
       schema: { type: string }
+    CredentialRef:
+      in: path
+      name: credential_ref
+      required: true
+      schema: { type: string }
+    RecoveryRequestId:
+      in: path
+      name: request_id
+      required: true
+      schema: { type: string }
 
   schemas:
     PolicyEvent:
       type: object
-      required:
-        - transition_id
-        - subject_ref
-        - state
-        - requested_at
-        - effective_at
-        - previous_event_hash
-        - event_hash
+      required: [transition_id, subject_ref, event_type, requested_at, previous_event_hash, event_hash]
       properties:
         transition_id: { type: string }
         subject_ref: { type: string }
-        state:
+        event_type:
           type: string
-          enum: [DIGITAL_ONLY, DOWNGRADE_PENDING]
-        requested_at: { type: string, format: date-time }
-        effective_at: { type: string, format: date-time }
-        previous_event_hash:
+          enum: [ACTIVATION_EFFECTIVE, DOWNGRADE_REQUESTED, DOWNGRADE_CANCELLED, DOWNGRADE_EFFECTIVE, RECOVERY_ENTERED, RECOVERY_EXITED]
+        effective_policy:
           oneOf:
-            - { type: string }
+            - { type: string, enum: [HANDWRITTEN_ALLOWED, DIGITAL_ONLY] }
             - { type: 'null' }
+        requested_at: { type: string, format: date-time }
+        effective_at:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        previous_event_hash:
+          oneOf: [{ type: string }, { type: 'null' }]
         event_hash: { type: string }
 
     StoredPolicyEvent:
@@ -163,8 +306,174 @@ components:
         - $ref: '#/components/schemas/PolicyEvent'
         - type: object
           required: [seq]
-          properties:
-            seq: { type: integer }
+          properties: { seq: { type: integer } }
+
+    CredentialInput:
+      type: object
+      required: [credential_ref]
+      properties:
+        credential_ref: { type: string }
+        assurance_level: { type: string, default: HIGH }
+
+    CredentialReplacementInput:
+      type: object
+      required: [new_credential_ref]
+      properties:
+        new_credential_ref: { type: string }
+        assurance_level: { type: [string, 'null'] }
+
+    Credential:
+      type: object
+      required: [credential_ref, subject_ref, assurance_level, status, created_at]
+      properties:
+        credential_ref: { type: string }
+        subject_ref: { type: string }
+        assurance_level: { type: string }
+        status: { type: string, enum: [ACTIVE, REVOKED] }
+        created_at: { type: string, format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+        replaces: { type: [string, 'null'] }
+
+    RecoveryEvidenceInput:
+      type: object
+      required: [evidence_class, result]
+      properties:
+        evidence_class: { type: string }
+        result:
+          type: string
+          enum: [CONSISTENT, ABSENT, STALE, BENIGN_MISMATCH, MATERIAL_CONTRADICTION]
+        reference: { type: [string, 'null'] }
+
+    RecoveryEvaluationInput:
+      type: object
+      properties:
+        evidence:
+          type: array
+          default: []
+          items: { $ref: '#/components/schemas/RecoveryEvidenceInput' }
+
+    RecoveryRequestInput:
+      type: object
+      required: [proposed_credential_ref]
+      properties:
+        proposed_credential_ref: { type: string }
+        assurance_level: { type: string, default: HIGH }
+        evidence:
+          type: array
+          default: []
+          items: { $ref: '#/components/schemas/RecoveryEvidenceInput' }
+
+    RecoveryDecision:
+      type: object
+      required: [subject_ref, route, outcome, material_contradictions, unresolved_mismatches, consistent_evidence_classes, required_consistent_evidence_classes, may_enter_cooling_off, effective_policy_unchanged]
+      properties:
+        subject_ref: { type: string }
+        route: { type: string, enum: [CREDENTIAL_FIRST, ENHANCED_RECOVERY] }
+        outcome:
+          type: string
+          enum: [USE_EXISTING_CREDENTIAL, BLOCKED_CONTRADICTION, REQUIRES_RECONCILIATION, INSUFFICIENT_EVIDENCE, READY_FOR_COOLING_OFF]
+        material_contradictions: { type: array, items: { type: string } }
+        unresolved_mismatches: { type: array, items: { type: string } }
+        consistent_evidence_classes:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        required_consistent_evidence_classes:
+          type: integer
+          minimum: 1
+          description: Recovery-assurance-profile threshold; synthetic reference default is 2.
+        may_enter_cooling_off: { type: boolean }
+        effective_policy_unchanged: { type: boolean, const: true }
+
+    RecoveryRequest:
+      type: object
+      required: [request_id, subject_ref, proposed_credential_ref, status, requested_at, not_before, decision, effective_policy_unchanged]
+      properties:
+        request_id: { type: string }
+        subject_ref: { type: string }
+        proposed_credential_ref: { type: string }
+        status: { type: string, const: PENDING }
+        requested_at: { type: string, format: date-time }
+        not_before: { type: string, format: date-time }
+        decision: { $ref: '#/components/schemas/RecoveryDecisionPayload' }
+        effective_policy_unchanged: { type: boolean, const: true }
+
+    RecoveryDecisionPayload:
+      type: object
+      required: [route, outcome, material_contradictions, unresolved_mismatches, consistent_evidence_classes, required_consistent_evidence_classes]
+      properties:
+        route: { type: string, enum: [CREDENTIAL_FIRST, ENHANCED_RECOVERY] }
+        outcome:
+          type: string
+          enum: [USE_EXISTING_CREDENTIAL, BLOCKED_CONTRADICTION, REQUIRES_RECONCILIATION, INSUFFICIENT_EVIDENCE, READY_FOR_COOLING_OFF]
+        material_contradictions: { type: array, items: { type: string } }
+        unresolved_mismatches: { type: array, items: { type: string } }
+        consistent_evidence_classes:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        required_consistent_evidence_classes:
+          type: integer
+          minimum: 1
+
+    RecoveryStatus:
+      type: object
+      required: [request_id, status, effective_policy_unchanged]
+      properties:
+        request_id: { type: string }
+        status: { type: string, const: CANCELLED }
+        effective_policy_unchanged: { type: boolean, const: true }
+
+    RecoveryCompletion:
+      type: object
+      required: [request_id, status, credential_ref, effective_policy_unchanged]
+      properties:
+        request_id: { type: string }
+        status: { type: string, const: COMPLETED }
+        credential_ref: { type: string }
+        effective_policy_unchanged: { type: boolean, const: true }
+
+    StoredRecoveryRequest:
+      type: object
+      required: [request_id, subject_ref, proposed_credential_ref, assurance_level, requested_at, not_before, status, decision]
+      properties:
+        request_id: { type: string }
+        subject_ref: { type: string }
+        proposed_credential_ref: { type: string }
+        assurance_level: { type: string }
+        requested_at: { type: string, format: date-time }
+        not_before: { type: string, format: date-time }
+        status: { type: string, enum: [PENDING, CANCELLED, COMPLETED] }
+        decision: { $ref: '#/components/schemas/RecoveryDecisionPayload' }
+        completed_at: { type: [string, 'null'], format: date-time }
+
+    SigningEvidenceInput:
+      type: object
+      required: [document_hash, credential_ref]
+      properties:
+        document_hash: { type: string, description: SHA-256 hex digest of external document content }
+        credential_ref: { type: string }
+        signed_at: { type: string, format: date-time }
+
+    SigningEvidence:
+      type: object
+      required: [evidence_id, subject_ref, document_hash, credential_ref, signed_at, previous_evidence_hash, evidence_hash]
+      properties:
+        evidence_id: { type: string }
+        subject_ref: { type: string }
+        document_hash: { type: string }
+        credential_ref: { type: string }
+        signed_at: { type: string, format: date-time }
+        previous_evidence_hash:
+          oneOf: [{ type: string }, { type: 'null' }]
+        evidence_hash: { type: string }
+
+    StoredSigningEvidence:
+      allOf:
+        - $ref: '#/components/schemas/SigningEvidence'
+        - type: object
+          required: [seq]
+          properties: { seq: { type: integer } }
 
     Signature:
       type: object
@@ -172,42 +481,25 @@ components:
       properties:
         alg: { type: string, const: Ed25519 }
         key_id: { type: string }
-        public_key: { type: string, description: Base64url-encoded raw Ed25519 public key; convenience data only }
-        value: { type: string, description: Base64url-encoded Ed25519 signature }
+        public_key: { type: string, description: Convenience data only; does not establish trust }
+        value: { type: string }
 
     PolicyAssertion:
       type: object
-      required:
-        - subject_ref
-        - policy
-        - queried_at
-        - assertion_issued_at
-        - assertion_expires_at
-        - assertion_id
-        - issuer
-        - key_id
-        - schema_version
-        - jurisdiction
-        - event_chain_head
-        - legal_effect
-        - signature
+      required: [subject_ref, policy, queried_at, assertion_issued_at, assertion_expires_at, assertion_id, issuer, key_id, schema_version, jurisdiction, event_chain_head, legal_effect, signature]
       properties:
         subject_ref: { type: string }
-        policy:
-          type: string
-          enum: [HANDWRITTEN_ALLOWED, DIGITAL_ONLY, INDETERMINATE]
+        policy: { type: string, enum: [HANDWRITTEN_ALLOWED, DIGITAL_ONLY, INDETERMINATE] }
         queried_at: { type: string, format: date-time }
         assertion_issued_at: { type: string, format: date-time }
         assertion_expires_at: { type: string, format: date-time }
         assertion_id: { type: string }
         issuer: { type: string }
         key_id: { type: string }
-        schema_version: { type: string, const: '0.3' }
+        schema_version: { type: string, const: '0.4' }
         jurisdiction: { type: string }
         event_chain_head:
-          oneOf:
-            - { type: string }
-            - { type: 'null' }
+          oneOf: [{ type: string }, { type: 'null' }]
         legal_effect: { type: string, const: none-reference-implementation }
         signature: { $ref: '#/components/schemas/Signature' }
 

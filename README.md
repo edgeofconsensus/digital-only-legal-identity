@@ -8,24 +8,67 @@ For an institution-facing summary focused on Ukraine, see [`docs/institutional-b
 
 A person should be able to formally activate a **digital-only legal identity** status. From its effective date, a handwritten signature attributed to that person should no longer be sufficient, by itself, to establish that person's legal intent in transactions covered by the regime.
 
-The purpose is not merely to digitize handwriting. It is to replace a difficult-to-revoke graphical identifier with verifiable electronic authorization that has an explicit security lifecycle.
+DOLI regulates legal/evidentiary sufficiency, not the physical act of handwriting.
 
-## Security premise
+## Effective policy
 
-A handwritten signature has no native security lifecycle. A qualified electronic signature can have one: issuance, authentication, certificate validation, verification, logging, revocation and re-issuance.
+The effective legal policy has exactly two values:
 
-This project therefore treats handwritten signatures primarily as a historical legal mechanism rather than the preferred mechanism for high-assurance authorization.
+- `HANDWRITTEN_ALLOWED` — ordinary law continues to govern handwriting.
+- `DIGITAL_ONLY` — handwriting alone is insufficient for covered legal actions.
 
-## Proposed model
+`INDETERMINATE` is a verification outcome, not a third legal-policy state. It must never silently alias to `HANDWRITTEN_ALLOWED`.
 
-The externally effective policy has two legal-policy states:
+A subject who has not activated DOLI remains in the ordinary legal regime. Parallel deployment therefore lets participants and non-participants coexist without weakening the policy of a participant who has already activated `DIGITAL_ONLY`.
 
-- `HANDWRITTEN_ALLOWED` — existing legal rules continue to apply.
-- `DIGITAL_ONLY` — handwritten signatures are not sufficient evidence of legal intent for covered actions and a qualifying digital authorization is required.
+## Workflow semantics
 
-`INDETERMINATE` is a verification outcome, not a permissive policy state. It means the registry cannot safely establish an authoritative answer and MUST NOT be interpreted as `HANDWRITTEN_ALLOWED`.
+Draft 0.4.1 separates workflow events from effective legal policy. The reference implementation demonstrates:
 
-A national implementation would need to define activation and downgrade procedures, effective timestamps, covered transactions, verifier authorization, legal consequences, privacy controls, auditability, availability and interoperability with national and international electronic-signature frameworks.
+- immediate synthetic `ACTIVATION_EFFECTIVE`;
+- `DOWNGRADE_REQUESTED` with a configurable cooling-off period;
+- `DOWNGRADE_CANCELLED`;
+- `DOWNGRADE_EFFECTIVE` only after cooling-off;
+- recovery workflow without policy downgrade;
+- no outage or infrastructure-failure transition back to handwriting.
+
+A workflow request is never treated as an effective policy merely because it is the newest event.
+
+## Credential and recovery profile
+
+Draft 0.4.1 adds a synthetic credential/recovery layer without adding a third effective policy state.
+
+A subject may have multiple independently revocable and replaceable credentials. If a sufficient authorized credential remains active, recovery is credential-first. If none remains, the reference model can evaluate synthetic enhanced-recovery evidence and, only after a sufficient result, enter a separate recovery cooling-off period.
+
+Evidence results distinguish `CONSISTENT`, `ABSENT`, `STALE`, `BENIGN_MISMATCH` and `MATERIAL_CONTRADICTION`.
+
+A benign mismatch is deliberately non-permissive:
+
+```text
+BENIGN_MISMATCH
+    -> REQUIRES_RECONCILIATION
+    -> reconciliation evidence
+    -> re-evaluation
+    -> [only if sufficient] recovery cooling-off
+```
+
+There is no administrative shortcut that marks a mismatch resolved by itself. A material contradiction blocks automatic recovery. Successful recovery creates a replacement credential; it does not change `DIGITAL_ONLY`.
+
+The number and combination of independent evidence classes sufficient for enhanced recovery are profile-defined, not a universal DOLI constant. The synthetic reference profile currently proposes a default minimum of **2 distinct `CONSISTENT` evidence classes**. This can be changed for experiments with `DOLI_RECOVERY_MIN_CONSISTENT_EVIDENCE_CLASSES`; duplicate records from the same evidence class do not increase the count.
+
+The reference API treats recovery evidence classifications as synthetic input. It does not claim to implement real citizen identity proofing or a production post-classical identity interview.
+
+## Technology neutrality
+
+The legal model is intentionally independent of a single product, vendor, network or computing class. A digital, analog-mechanical or other implementation may conform only if it preserves equivalent authenticity, integrity, temporal determinacy, historical verifiability and protection against unauthorized state change.
+
+Technology neutrality is not a weaker assurance mode and is not a handwriting fallback.
+
+## Signing-evidence history
+
+The reference implementation includes a separate minimal signing-evidence stream. It stores a SHA-256 document commitment, credential reference, signing time and integrity-chain metadata; it does not store document content.
+
+Signing evidence can support continuity and audit, but knowledge of previous evidence must not become an authentication password or recovery secret.
 
 ## Reference protocol direction
 
@@ -36,6 +79,12 @@ A relying party should be able to ask a minimal question without obtaining unnec
 The current reference API returns a short-lived Ed25519-signed assertion containing the resolved policy, queried legal time, issuer/key metadata and an event-chain integrity reference.
 
 No real personal data belongs in this repository. The software is a reference implementation of a protocol and policy model, not a population registry.
+
+## Policy proposal for Ukraine
+
+`POLICY_PROPOSAL_UA.md` contains the normative-technical proposal for a voluntary Ukrainian pilot and institutional policy review.
+
+No logos or implied partner endorsements are used. Potential integrations should be labeled only by factual status such as `implemented`, `compatible by design`, `proposed integration` or `out of scope`.
 
 ## Run the reference API
 
@@ -58,15 +107,19 @@ Run the automated tests with:
 pytest -q reference/tests
 ```
 
-Local SQLite data and the development signing key are intentionally excluded from version control.
+Draft 0.4 changes the synthetic SQLite schema to structurally separate workflow events from effective policy. Draft 0.4.1 adds synthetic credential and recovery tables. If upgrading an older local demo checkout, remove the old local `reference/doli.sqlite3` file before starting. No real data belongs in that database.
+
+Recovery cooling-off defaults to 300 seconds and can be changed for synthetic tests/demos with `DOLI_RECOVERY_COOLING_OFF_SECONDS`. Downgrade cooling-off is independently configured with `DOLI_DOWNGRADE_COOLING_OFF_SECONDS`. The proposed recovery-evidence threshold defaults to 2 distinct consistent classes and is configurable with `DOLI_RECOVERY_MIN_CONSISTENT_EVIDENCE_CLASSES`.
 
 ## Reference implementation security boundary
 
-The current API is a synthetic demonstration only. Mutation endpoints and the outage-simulation admin endpoint are deliberately unauthenticated. The development Ed25519 private key is generated locally, stored unencrypted and is not production key management.
+The current API is a synthetic demonstration only. Mutation, credential/recovery, evidence-listing and outage-simulation endpoints are deliberately unauthenticated and are not production interfaces. The development Ed25519 private key is generated locally, stored unencrypted and is not production key management.
 
-The public key embedded in an assertion is convenience data only. A relying party must obtain or pin the authoritative registry key through a trusted channel; trusting an arbitrary embedded key would defeat the signature trust model.
+The public key embedded in an assertion is convenience data only. A relying party must obtain or pin the authoritative registry key through a trusted channel.
 
-The SQLite append-only triggers and per-subject hash chain make many modifications detectable, but they do not prevent a privileged operator from replacing the database with an older internally consistent snapshot. Production deployment requires stronger authorization, HSM or equivalent key protection, key rotation, external audit anchoring/checkpoints, anti-enumeration controls and operational availability guarantees.
+SQLite append-only triggers and per-subject hash chains make many modifications to policy/signing-evidence history detectable, but they do not prevent a privileged operator from replacing the database with an older internally consistent snapshot. Production deployment requires authorization, protected key management, rotation, external freshness/audit anchoring, anti-enumeration controls, privacy protection for signing/recovery evidence and operational continuity guarantees.
+
+The synthetic credential/recovery tables demonstrate semantics; they are not presented as a production tamper-evident credential ledger. The reference SQLite append path is also not hardened as a production concurrent-writer protocol.
 
 ## Project stages
 
@@ -74,17 +127,17 @@ The SQLite append-only triggers and per-subject hash chain make many modificatio
 Define legal semantics, state transitions, threat model and privacy requirements.
 
 **Stage 2 — Reference API**  
-Implement a small registry simulator and verification endpoint using synthetic identities.
+Implement and test a synthetic registry, workflow, credential/recovery model and verification endpoint.
 
 **Stage 3 — Demonstration**  
-Model a relying party such as a bank or notary receiving a handwritten document, checking the policy and requiring digital authorization when the status is `DIGITAL_ONLY`.
+Model a relying party checking DOLI before accepting a legal authorization.
 
 **Stage 4 — Policy proposal**  
-Prepare a jurisdiction-neutral policy paper and an implementation profile for Ukraine that can be submitted for institutional review.
+Prepare the Ukrainian normative-technical proposal and pilot profile for institutional review.
 
 ## Status
 
-Draft 0.3 specification / reference implementation. This repository does not provide legal advice and does not represent an operational government service.
+Draft 0.4.1 specification / reference implementation and Draft 0.2 Ukrainian policy proposal. This repository does not provide legal advice and does not represent an operational government service.
 
 ## License
 

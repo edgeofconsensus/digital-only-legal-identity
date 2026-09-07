@@ -1,19 +1,19 @@
 openapi: 3.1.0
 info:
   title: Digital-Only Legal Identity Reference API
-  version: 0.3.1
+  version: 0.4.0
   description: >-
-    Demonstration API for a jurisdiction-neutral handwritten-signature policy registry.
-    Uses synthetic subjects only and has no legal effect.
+    Synthetic demonstration API for DOLI policy, workflow events, signed assertions
+    and minimal signing-evidence commitments. No legal effect.
 servers:
   - url: http://localhost:8000
 paths:
   /v1/subjects:
     post:
-      summary: Create a synthetic policy subject
+      summary: Create a synthetic subject in the ordinary legal regime
       responses:
         '201':
-          description: Synthetic subject created
+          description: Subject created
           content:
             application/json:
               schema:
@@ -21,99 +21,115 @@ paths:
                 required: [subject_ref, policy]
                 properties:
                   subject_ref: { type: string }
-                  policy:
-                    type: string
-                    enum: [HANDWRITTEN_ALLOWED]
+                  policy: { type: string, const: HANDWRITTEN_ALLOWED }
 
   /v1/subjects/{subject_ref}/activate-digital-only:
     post:
-      summary: Activate DIGITAL_ONLY for a synthetic subject
-      parameters:
-        - $ref: '#/components/parameters/SubjectRef'
+      summary: Append an effective DIGITAL_ONLY activation
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       responses:
-        '200':
-          description: Activation event appended
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicyEvent' }
+        '200': { description: Activation effective, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
         '404': { description: Subject not found }
-        '409': { description: Subject is already DIGITAL_ONLY }
+        '409': { description: Subject already DIGITAL_ONLY }
 
   /v1/subjects/{subject_ref}/request-downgrade:
     post:
-      summary: Record a pending downgrade request
-      parameters:
-        - $ref: '#/components/parameters/SubjectRef'
+      summary: Request downgrade without changing effective policy
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       responses:
-        '200':
-          description: Downgrade request event appended; effective policy remains DIGITAL_ONLY
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicyEvent' }
+        '200': { description: Downgrade requested, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
         '404': { description: Subject not found }
-        '409': { description: Invalid downgrade request }
+        '409': { description: Invalid or duplicate request }
 
   /v1/subjects/{subject_ref}/cancel-downgrade:
     post:
       summary: Cancel a pending downgrade
-      parameters:
-        - $ref: '#/components/parameters/SubjectRef'
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       responses:
-        '200':
-          description: Cancellation event appended
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicyEvent' }
-        '404': { description: Subject not found }
+        '200': { description: Downgrade cancelled, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
         '409': { description: No downgrade pending }
+
+  /v1/subjects/{subject_ref}/complete-downgrade:
+    post:
+      summary: Complete downgrade after cooling-off
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200': { description: HANDWRITTEN_ALLOWED becomes effective, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
+        '409': { description: No pending request or cooling-off still active }
+
+  /v1/subjects/{subject_ref}/enter-recovery:
+    post:
+      summary: Record recovery entry without changing policy
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200': { description: Recovery entered, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
+        '409': { description: Recovery demonstration requires DIGITAL_ONLY }
+
+  /v1/subjects/{subject_ref}/exit-recovery:
+    post:
+      summary: Record recovery exit without changing policy
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200': { description: Recovery exited, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyEvent' } } } }
+        '409': { description: Subject not in recovery }
 
   /v1/signature-policy/{subject_ref}:
     get:
-      summary: Resolve current or historical signature policy
+      summary: Resolve effective policy at legal time T
       parameters:
         - $ref: '#/components/parameters/SubjectRef'
         - in: query
           name: at
           required: false
-          description: ISO-8601 legal timestamp. Defaults to current UTC time.
           schema: { type: string, format: date-time }
       responses:
-        '200':
-          description: Signed demonstration assertion
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PolicyAssertion' }
-        '400': { description: Invalid ISO-8601 timestamp }
+        '200': { description: Signed assertion, content: { application/json: { schema: { $ref: '#/components/schemas/PolicyAssertion' } } } }
+        '400': { description: Invalid timestamp }
         '404': { description: Subject not found }
 
   /v1/subjects/{subject_ref}/events:
     get:
-      summary: Return append-only demonstration policy events for a synthetic subject
-      parameters:
-        - $ref: '#/components/parameters/SubjectRef'
+      summary: Return append-only policy/workflow history
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
       responses:
         '200':
-          description: Policy event history
+          description: Event history
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/StoredPolicyEvent' }
-        '404': { description: Subject not found }
+              schema: { type: array, items: { $ref: '#/components/schemas/StoredPolicyEvent' } }
+
+  /v1/subjects/{subject_ref}/signing-evidence:
+    post:
+      summary: Record a document commitment; document content is not stored
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SigningEvidenceInput' }
+      responses:
+        '201': { description: Evidence recorded, content: { application/json: { schema: { $ref: '#/components/schemas/SigningEvidence' } } } }
+        '400': { description: Invalid SHA-256 digest or timestamp }
+    get:
+      summary: Return demonstration signing-evidence history
+      parameters: [{ $ref: '#/components/parameters/SubjectRef' }]
+      responses:
+        '200':
+          description: Evidence history
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/StoredSigningEvidence' } }
+        '503': { description: Evidence-chain integrity failure }
 
   /v1/registry/public-key:
     get:
-      summary: Return the demonstration registry assertion-verification key
+      summary: Return demonstration assertion-verification key
       responses:
-        '200':
-          description: Registry public key metadata
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/RegistryPublicKey' }
+        '200': { description: Registry public key, content: { application/json: { schema: { $ref: '#/components/schemas/RegistryPublicKey' } } } }
 
   /v1/admin/simulate-outage:
     post:
-      summary: Toggle simulated registry outage for fail-closed demonstration
+      summary: Toggle simulated outage; does not mutate policy
       responses:
         '200':
           description: Simulation state changed
@@ -122,8 +138,7 @@ paths:
               schema:
                 type: object
                 required: [simulated_outage]
-                properties:
-                  simulated_outage: { type: boolean }
+                properties: { simulated_outage: { type: boolean } }
 
 components:
   parameters:
@@ -136,26 +151,24 @@ components:
   schemas:
     PolicyEvent:
       type: object
-      required:
-        - transition_id
-        - subject_ref
-        - state
-        - requested_at
-        - effective_at
-        - previous_event_hash
-        - event_hash
+      required: [transition_id, subject_ref, event_type, requested_at, previous_event_hash, event_hash]
       properties:
         transition_id: { type: string }
         subject_ref: { type: string }
-        state:
+        event_type:
           type: string
-          enum: [DIGITAL_ONLY, DOWNGRADE_PENDING]
-        requested_at: { type: string, format: date-time }
-        effective_at: { type: string, format: date-time }
-        previous_event_hash:
+          enum: [ACTIVATION_EFFECTIVE, DOWNGRADE_REQUESTED, DOWNGRADE_CANCELLED, DOWNGRADE_EFFECTIVE, RECOVERY_ENTERED, RECOVERY_EXITED]
+        effective_policy:
           oneOf:
-            - { type: string }
+            - { type: string, enum: [HANDWRITTEN_ALLOWED, DIGITAL_ONLY] }
             - { type: 'null' }
+        requested_at: { type: string, format: date-time }
+        effective_at:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        previous_event_hash:
+          oneOf: [{ type: string }, { type: 'null' }]
         event_hash: { type: string }
 
     StoredPolicyEvent:
@@ -163,8 +176,35 @@ components:
         - $ref: '#/components/schemas/PolicyEvent'
         - type: object
           required: [seq]
-          properties:
-            seq: { type: integer }
+          properties: { seq: { type: integer } }
+
+    SigningEvidenceInput:
+      type: object
+      required: [document_hash, credential_ref]
+      properties:
+        document_hash: { type: string, description: SHA-256 hex digest of external document content }
+        credential_ref: { type: string }
+        signed_at: { type: string, format: date-time }
+
+    SigningEvidence:
+      type: object
+      required: [evidence_id, subject_ref, document_hash, credential_ref, signed_at, previous_evidence_hash, evidence_hash]
+      properties:
+        evidence_id: { type: string }
+        subject_ref: { type: string }
+        document_hash: { type: string }
+        credential_ref: { type: string }
+        signed_at: { type: string, format: date-time }
+        previous_evidence_hash:
+          oneOf: [{ type: string }, { type: 'null' }]
+        evidence_hash: { type: string }
+
+    StoredSigningEvidence:
+      allOf:
+        - $ref: '#/components/schemas/SigningEvidence'
+        - type: object
+          required: [seq]
+          properties: { seq: { type: integer } }
 
     Signature:
       type: object
@@ -172,42 +212,25 @@ components:
       properties:
         alg: { type: string, const: Ed25519 }
         key_id: { type: string }
-        public_key: { type: string, description: Base64url-encoded raw Ed25519 public key; convenience data only }
-        value: { type: string, description: Base64url-encoded Ed25519 signature }
+        public_key: { type: string, description: Convenience data only; does not establish trust }
+        value: { type: string }
 
     PolicyAssertion:
       type: object
-      required:
-        - subject_ref
-        - policy
-        - queried_at
-        - assertion_issued_at
-        - assertion_expires_at
-        - assertion_id
-        - issuer
-        - key_id
-        - schema_version
-        - jurisdiction
-        - event_chain_head
-        - legal_effect
-        - signature
+      required: [subject_ref, policy, queried_at, assertion_issued_at, assertion_expires_at, assertion_id, issuer, key_id, schema_version, jurisdiction, event_chain_head, legal_effect, signature]
       properties:
         subject_ref: { type: string }
-        policy:
-          type: string
-          enum: [HANDWRITTEN_ALLOWED, DIGITAL_ONLY, INDETERMINATE]
+        policy: { type: string, enum: [HANDWRITTEN_ALLOWED, DIGITAL_ONLY, INDETERMINATE] }
         queried_at: { type: string, format: date-time }
         assertion_issued_at: { type: string, format: date-time }
         assertion_expires_at: { type: string, format: date-time }
         assertion_id: { type: string }
         issuer: { type: string }
         key_id: { type: string }
-        schema_version: { type: string, const: '0.3' }
+        schema_version: { type: string, const: '0.4' }
         jurisdiction: { type: string }
         event_chain_head:
-          oneOf:
-            - { type: string }
-            - { type: 'null' }
+          oneOf: [{ type: string }, { type: 'null' }]
         legal_effect: { type: string, const: none-reference-implementation }
         signature: { $ref: '#/components/schemas/Signature' }
 

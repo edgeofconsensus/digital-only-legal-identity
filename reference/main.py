@@ -15,7 +15,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-APP_VERSION = "0.4.0"
+from reference.recovery_api import router as recovery_router
+
+APP_VERSION = "0.4.1"
 SCHEMA_VERSION = "0.4"
 JURISDICTION = "demo"
 REGISTRY_ISSUER = "doli-reference-registry"
@@ -27,6 +29,7 @@ DB_PATH = Path(os.getenv("DOLI_DB_PATH", "reference/doli.sqlite3"))
 KEY_PATH = Path(os.getenv("DOLI_SIGNING_KEY_PATH", "reference/dev-signing-key.pem"))
 
 app = FastAPI(title="Digital-Only Legal Identity Reference API", version=APP_VERSION)
+app.include_router(recovery_router)
 simulated_outage = False
 
 

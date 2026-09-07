@@ -105,18 +105,28 @@ An enhanced recovery procedure MAY use a structured identity interview or other 
 
 The interview itself MUST NOT be treated as a password, knowledge-based authentication quiz or authority to downgrade policy.
 
-### 7.3 Contradiction gate
+### 7.3 Contradiction and reconciliation gate
 
-Material contradictions between recovery claims and authoritative or independently verifiable evidence MUST prevent automatic recovery completion until resolved under the jurisdiction's defined procedure.
+Recovery evidence evaluation SHOULD distinguish at least:
 
-A contradiction gate SHOULD distinguish at least:
+- `ABSENT` — evidence is unavailable;
+- `STALE` — evidence exists but is superseded or insufficiently current;
+- `BENIGN_MISMATCH` — a potentially reconcilable discrepancy that does not by itself establish impersonation, coercion or record corruption;
+- `MATERIAL_CONTRADICTION` — a contradiction indicating possible impersonation, coercion, corrupted records or another material integrity problem;
+- `CONSISTENT` — evidence is sufficiently consistent for the relevant evaluation step.
 
-- absence of evidence;
-- stale or superseded evidence;
-- benign mismatch that can be reconciled;
-- material contradiction indicating possible impersonation, coercion or corrupted records.
+A `MATERIAL_CONTRADICTION` MUST prevent automatic recovery completion until resolved under the jurisdiction's defined procedure. The system MUST NOT resolve it by silently lowering the assurance threshold or restoring handwritten authority.
 
-The system MUST NOT resolve a material contradiction by silently lowering the assurance threshold or restoring handwritten authority.
+A `BENIGN_MISMATCH` MUST NOT proceed directly to cooling-off. It produces `REQUIRES_RECONCILIATION`. Reconciliation requires additional or corrected evidence and a new recovery evaluation:
+
+```text
+BENIGN_MISMATCH
+    -> reconciliation evidence
+    -> re-evaluation
+    -> [only if sufficient] READY_FOR_COOLING_OFF
+```
+
+A manual or administrative `resolved` flag, without reconciliation evidence and re-evaluation, MUST NOT be sufficient to bypass this gate. Reconciliation MUST NOT reclassify a material contradiction merely to obtain a permissive result.
 
 ### 7.4 Recovery cooling-off
 
@@ -277,7 +287,8 @@ The protocol preserves these core invariants:
 12. Signing evidence proves continuity/audit history and is not an authentication secret.
 13. Loss of one credential does not imply loss of identity when another sufficient authorized credential remains usable.
 14. Enhanced recovery MUST NOT complete automatically across unresolved material contradictions.
-15. Recovery completion authorizes credential continuity, not policy downgrade.
+15. A benign mismatch requires reconciliation evidence and re-evaluation before cooling-off; a manual resolved flag is insufficient.
+16. Recovery completion authorizes credential continuity, not policy downgrade.
 
 ## 19. Failure and threat model
 
@@ -287,23 +298,28 @@ Enhanced recovery must additionally address public-information impersonation, co
 
 Local hash chains or append-only database controls do not by themselves prove freshness of the authoritative snapshot. Production systems SHOULD use externally verifiable checkpoints, transparency mechanisms, independent replication or equivalent audit anchoring where appropriate.
 
-## 20. Reference implementation profile 0.4
+## 20. Reference implementation profile 0.4.1
 
-The reference profile should demonstrate with synthetic subjects:
+The reference profile demonstrates with synthetic subjects:
 
 - separate workflow events and effective policy transitions;
 - default `HANDWRITTEN_ALLOWED` semantics for non-activated subjects;
 - immediate demonstration activation;
 - requested/cancelled/completed downgrade with configurable cooling-off;
 - recovery events that do not change effective policy;
+- credential-set registration, independent revocation and replacement;
+- credential-first routing before enhanced recovery;
+- enhanced recovery evidence classification and contradiction gating;
+- `BENIGN_MISMATCH -> REQUIRES_RECONCILIATION` without direct cooling-off;
+- recovery cooling-off followed by replacement-credential creation without policy downgrade;
 - current and historical policy resolution by `effective_at`;
 - signed short-lived assertions;
 - fail-closed `INDETERMINATE` behavior;
-- append-only/tamper-evident event history;
+- append-only/tamper-evident policy-event history;
 - minimal signing-evidence commitments without document content;
 - automated semantic and integrity tests.
 
-Draft 0.4.1 specifies, but the current prototype does not yet implement, credential-set management, enhanced identity interview evaluation, contradiction classification or recovery cooling-off for replacement credentials. These are the next reference-implementation layer and MUST preserve the two-state effective-policy model.
+The current prototype models reconciliation by requiring a subsequent recovery evaluation with corrected/additional evidence; it deliberately provides no administrative endpoint that marks a mismatch resolved by fiat. Concrete post-classical identity-interview techniques remain an implementation-profile extension rather than a fixed protocol requirement.
 
 The prototype does not implement real citizen identity proofing, production PKI/HSM key management, production authorization, national legal effect, complete continuity-of-law infrastructure or production privacy controls.
 

@@ -5,10 +5,17 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 
-def load_app(tmp_path: Path, recovery_cooling_seconds: int = 0):
+def load_app(
+    tmp_path: Path,
+    recovery_cooling_seconds: int = 0,
+    min_consistent_evidence_classes: int = 2,
+):
     os.environ["DOLI_DB_PATH"] = str(tmp_path / "doli.sqlite3")
     os.environ["DOLI_SIGNING_KEY_PATH"] = str(tmp_path / "signing.pem")
     os.environ["DOLI_RECOVERY_COOLING_OFF_SECONDS"] = str(recovery_cooling_seconds)
+    os.environ["DOLI_RECOVERY_MIN_CONSISTENT_EVIDENCE_CLASSES"] = str(
+        min_consistent_evidence_classes
+    )
     import reference.main as main
 
     importlib.reload(main)
@@ -44,12 +51,32 @@ def test_persisted_credentials_drive_credential_first_then_enhanced_recovery(tmp
     client.post(f"/v1/subjects/{subject}/credentials/hardware:1/revoke")
     enhanced = client.post(
         f"/v1/subjects/{subject}/recovery/evaluate",
-        json={"evidence": [{"evidence_class": "continuity", "result": "CONSISTENT"}]},
+        json={
+            "evidence": [
+                {"evidence_class": "continuity", "result": "CONSISTENT"},
+                {"evidence_class": "authoritative_identity", "result": "CONSISTENT"},
+            ]
+        },
     ).json()
     assert enhanced["route"] == "ENHANCED_RECOVERY"
     assert enhanced["outcome"] == "READY_FOR_COOLING_OFF"
+    assert enhanced["required_consistent_evidence_classes"] == 2
     assert enhanced["may_enter_cooling_off"] is True
     assert client.get(f"/v1/signature-policy/{subject}").json()["policy"] == "DIGITAL_ONLY"
+
+
+def test_reference_assurance_threshold_is_configurable(tmp_path):
+    main = load_app(tmp_path, min_consistent_evidence_classes=1)
+    client = TestClient(main.app)
+    subject = create_digital_only_subject(client)
+
+    evaluated = client.post(
+        f"/v1/subjects/{subject}/recovery/evaluate",
+        json={"evidence": [{"evidence_class": "continuity", "result": "CONSISTENT"}]},
+    ).json()
+
+    assert evaluated["outcome"] == "READY_FOR_COOLING_OFF"
+    assert evaluated["required_consistent_evidence_classes"] == 1
 
 
 def test_material_contradiction_blocks_recovery_without_policy_change(tmp_path):

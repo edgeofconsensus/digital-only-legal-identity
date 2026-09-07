@@ -1,6 +1,6 @@
 # Digital-Only Legal Identity — Specification
 
-Status: Draft 0.4
+Status: Draft 0.4.1
 
 ## 1. Objective
 
@@ -81,6 +81,50 @@ identity recovery != security-policy downgrade
 ```
 
 Recovery events MAY restrict accepted authorization methods while identity or credential control is re-established, but the effective policy remains unchanged unless a separate legally effective policy transition occurs.
+
+### 7.1 Credential-first recovery
+
+A DOLI identity MAY be associated with a set of independently usable high-assurance credentials rather than one permanent credential. Credential references SHOULD be independently revocable and replaceable without changing the effective legal policy.
+
+Before entering an enhanced identity-recovery procedure, an implementation SHOULD determine whether at least one already-authorized credential remains usable. If sufficient credential control can be established, recovery SHOULD proceed through credential rotation, revocation or replacement and MUST NOT be treated as policy downgrade.
+
+Loss of one credential therefore does not imply loss of the DOLI identity or loss of `DIGITAL_ONLY` protection.
+
+### 7.2 Enhanced identity recovery
+
+If no sufficient authorized credential remains available, a jurisdiction MAY define an enhanced recovery procedure. Such a procedure is an identity-continuity mechanism, not a hidden override of effective policy.
+
+An enhanced recovery procedure MAY use a structured identity interview or other post-classical evidence evaluation that combines independent evidence classes rather than relying on a single reusable secret. The procedure SHOULD:
+
+- evaluate claims against independently verifiable identity, credential, policy and authorization history where legally permitted;
+- minimize disclosure of document content and unrelated personal data;
+- distinguish continuity evidence from authentication secrets;
+- record the evidence classes and decision result without unnecessarily centralizing raw evidence;
+- fail closed when material contradictions cannot be resolved;
+- resist social-engineering answers derived from public or previously leaked information.
+
+The interview itself MUST NOT be treated as a password, knowledge-based authentication quiz or authority to downgrade policy.
+
+### 7.3 Contradiction gate
+
+Material contradictions between recovery claims and authoritative or independently verifiable evidence MUST prevent automatic recovery completion until resolved under the jurisdiction's defined procedure.
+
+A contradiction gate SHOULD distinguish at least:
+
+- absence of evidence;
+- stale or superseded evidence;
+- benign mismatch that can be reconciled;
+- material contradiction indicating possible impersonation, coercion or corrupted records.
+
+The system MUST NOT resolve a material contradiction by silently lowering the assurance threshold or restoring handwritten authority.
+
+### 7.4 Recovery cooling-off
+
+Successful enhanced identity proofing MAY create a pending credential-recovery result subject to a bounded cooling-off period before a replacement credential becomes fully authoritative. During that interval, the effective DOLI policy remains unchanged.
+
+A recovery cooling-off period SHOULD support cancellation or challenge through any still-valid independent credential or other defined high-assurance channel. It MUST NOT delay urgent revocation of a credential known or suspected to be compromised.
+
+Recovery completion authorizes credential continuity only. A separate downgrade workflow is required to change `DIGITAL_ONLY` to `HANDWRITTEN_ALLOWED`.
 
 ## 8. Infrastructure failure and continuity of law
 
@@ -231,10 +275,15 @@ The protocol preserves these core invariants:
 10. Technology neutrality MUST preserve equivalent assurance.
 11. Additional privileged state-change channels are minimized and justified.
 12. Signing evidence proves continuity/audit history and is not an authentication secret.
+13. Loss of one credential does not imply loss of identity when another sufficient authorized credential remains usable.
+14. Enhanced recovery MUST NOT complete automatically across unresolved material contradictions.
+15. Recovery completion authorizes credential continuity, not policy downgrade.
 
 ## 19. Failure and threat model
 
 The protocol must address registry unavailability, compromised credentials, delayed revocation information, coercion, identity mismatch, assertion replay, malicious or negligent relying parties, unauthorized enumeration, rollback or alteration of policy history, registry-authority compromise, abuse of downgrade/recovery channels, signing-history privacy leakage and infrastructure continuity.
+
+Enhanced recovery must additionally address public-information impersonation, contradictory evidence, recovery-channel capture, coercive recovery attempts and attempts to convert credential loss into a policy downgrade.
 
 Local hash chains or append-only database controls do not by themselves prove freshness of the authoritative snapshot. Production systems SHOULD use externally verifiable checkpoints, transparency mechanisms, independent replication or equivalent audit anchoring where appropriate.
 
@@ -253,6 +302,8 @@ The reference profile should demonstrate with synthetic subjects:
 - append-only/tamper-evident event history;
 - minimal signing-evidence commitments without document content;
 - automated semantic and integrity tests.
+
+Draft 0.4.1 specifies, but the current prototype does not yet implement, credential-set management, enhanced identity interview evaluation, contradiction classification or recovery cooling-off for replacement credentials. These are the next reference-implementation layer and MUST preserve the two-state effective-policy model.
 
 The prototype does not implement real citizen identity proofing, production PKI/HSM key management, production authorization, national legal effect, complete continuity-of-law infrastructure or production privacy controls.
 

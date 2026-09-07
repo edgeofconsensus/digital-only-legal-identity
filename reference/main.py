@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 from uuid import uuid4
@@ -13,9 +14,11 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI, HTTPException
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 SCHEMA_VERSION = "0.3"
 JURISDICTION = "demo"
+REGISTRY_ISSUER = "doli-reference-registry"
+ASSERTION_TTL = timedelta(minutes=5)
 DB_PATH = Path(os.getenv("DOLI_DB_PATH", "reference/doli.sqlite3"))
 KEY_PATH = Path(os.getenv("DOLI_SIGNING_KEY_PATH", "reference/dev-signing-key.pem"))
 
@@ -92,6 +95,10 @@ def load_or_create_signing_key() -> Ed25519PrivateKey:
             encryption_algorithm=serialization.NoEncryption(),
         )
     )
+    try:
+        KEY_PATH.chmod(0o600)
+    except OSError:
+        pass
     return key
 
 
@@ -103,14 +110,16 @@ def public_key_b64(key: Ed25519PrivateKey) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
+def key_id(key: Ed25519PrivateKey) -> str:
+    return "ed25519:" + hashlib.sha256(public_key_b64(key).encode("ascii")).hexdigest()[:24]
+
+
 def sign_payload(payload: dict) -> str:
     signature = load_or_create_signing_key().sign(canonical_json(payload))
     return base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
 
 
 def hash_event(event: dict) -> str:
-    import hashlib
-
     return hashlib.sha256(canonical_json(event)).hexdigest()
 
 
@@ -128,12 +137,42 @@ def events_for(conn: sqlite3.Connection, subject_ref: str) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def resolve_policy(events: Iterable[sqlite3.Row], at: datetime) -> str:
-    effective = [row for row in events if parse_ts(row["effective_at"]) <= at]
+def effective_events(events: Iterable[sqlite3.Row], at: datetime) -> list[sqlite3.Row]:
+    return [row for row in events if parse_ts(row["effective_at"]) <= at]
+
+
+def latest_effective_event(events: Iterable[sqlite3.Row], at: datetime) -> sqlite3.Row | None:
+    effective = effective_events(events, at)
     if not effective:
+        return None
+    return max(effective, key=lambda row: (parse_ts(row["effective_at"]), row["seq"]))
+
+
+def resolve_policy(events: Iterable[sqlite3.Row], at: datetime) -> str:
+    latest = latest_effective_event(events, at)
+    if latest is None:
         return "HANDWRITTEN_ALLOWED"
-    raw = effective[-1]["state"]
+    raw = latest["state"]
     return "DIGITAL_ONLY" if raw == "DOWNGRADE_PENDING" else raw
+
+
+def verify_event_chain(events: Iterable[sqlite3.Row]) -> bool:
+    previous_hash = None
+    for row in events:
+        event = {
+            "transition_id": row["transition_id"],
+            "subject_ref": row["subject_ref"],
+            "state": row["state"],
+            "requested_at": row["requested_at"],
+            "effective_at": row["effective_at"],
+            "previous_event_hash": row["previous_event_hash"],
+        }
+        if row["previous_event_hash"] != previous_hash:
+            return False
+        if hash_event(event) != row["event_hash"]:
+            return False
+        previous_hash = row["event_hash"]
+    return True
 
 
 def append_event(
@@ -234,17 +273,25 @@ def get_signature_policy(subject_ref: str, at: str | None = None):
     with db() as conn:
         require_subject(conn, subject_ref)
         rows = events_for(conn, subject_ref)
-        policy = "INDETERMINATE" if simulated_outage else resolve_policy(rows, queried_at)
+        chain_valid = verify_event_chain(rows)
+        if simulated_outage or not chain_valid:
+            policy = "INDETERMINATE"
+        else:
+            policy = resolve_policy(rows, queried_at)
         if policy not in {"HANDWRITTEN_ALLOWED", "DIGITAL_ONLY", "INDETERMINATE"}:
             policy = "INDETERMINATE"
         event_head = rows[-1]["event_hash"] if rows else None
 
+    signing_key = load_or_create_signing_key()
     assertion = {
         "subject_ref": subject_ref,
         "policy": policy,
         "queried_at": iso(queried_at),
         "assertion_issued_at": iso(issued_at),
+        "assertion_expires_at": iso(issued_at + ASSERTION_TTL),
         "assertion_id": str(uuid4()),
+        "issuer": REGISTRY_ISSUER,
+        "key_id": key_id(signing_key),
         "schema_version": SCHEMA_VERSION,
         "jurisdiction": JURISDICTION,
         "event_chain_head": event_head,
@@ -254,7 +301,8 @@ def get_signature_policy(subject_ref: str, at: str | None = None):
         **assertion,
         "signature": {
             "alg": "Ed25519",
-            "public_key": public_key_b64(load_or_create_signing_key()),
+            "key_id": key_id(signing_key),
+            "public_key": public_key_b64(signing_key),
             "value": sign_payload(assertion),
         },
     }
@@ -270,9 +318,12 @@ def get_events(subject_ref: str):
 
 @app.get("/v1/registry/public-key")
 def get_registry_public_key():
+    signing_key = load_or_create_signing_key()
     return {
+        "issuer": REGISTRY_ISSUER,
         "alg": "Ed25519",
-        "public_key": public_key_b64(load_or_create_signing_key()),
+        "key_id": key_id(signing_key),
+        "public_key": public_key_b64(signing_key),
         "use": "assertion-verification",
     }
 

@@ -141,4 +141,4 @@ Draft 0.4.1 specification / reference implementation and Draft 0.2 Ukrainian pol
 
 ## License
 
-A permissive open-source license will be selected before the first software release.
+Licensed under the [Apache License 2.0](LICENSE).

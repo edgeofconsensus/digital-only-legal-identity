@@ -2,7 +2,7 @@ name: test
 
 on:
   push:
-    branches: [main, feature/signed-assertions-event-store]
+    branches: [main]
   pull_request:
 
 permissions:
